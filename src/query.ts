@@ -102,41 +102,54 @@ function unquote(v: string): string {
 // ── Raw tree (line parser) ───────────────────────────────────────────────────
 interface RawNode { head: string; children: RawNode[] }
 
-// Strip a trailing // comment, but ignore // inside quotes (e.g. https:// URLs).
-function stripComment(line: string): string {
-  let inq = '';
-  for (let i = 0; i < line.length - 1; i++) {
-    const c = line[i]!;
-    if (inq) { if (c === inq) inq = ''; continue; }
-    if (c === '"' || c === "'") { inq = c; continue; }
-    if (c === '/' && line[i + 1] === '/') return line.slice(0, i);
-  }
-  return line;
-}
-
+// Char-level parser: a block opens with { (on the head's line OR inline) and
+// closes with }; // starts a comment. Quote-aware throughout, so inline
+// `item { text "x" }`, multi-line blocks, trailing comments, and https:// URLs
+// all parse correctly.
 function parseRaw(src: string): RawNode[] {
-  const roots: RawNode[] = [];
-  const stack: RawNode[][] = [roots];
-  const lines = src.split('\n');
-  for (let ln = 0; ln < lines.length; ln++) {
-    let line = stripComment(lines[ln]!);
-    line = line.trim();
-    if (!line) continue;
-    if (line === '}') {
-      if (stack.length > 1) stack.pop();
-      continue;
+  const n = src.length;
+  let i = 0;
+  const skipWs = (): void => {
+    while (i < n) {
+      const c = src[i]!;
+      if (c === ' ' || c === '\t' || c === '\r' || c === '\n') { i++; continue; }
+      if (c === '/' && src[i + 1] === '/') { while (i < n && src[i] !== '\n') i++; continue; }
+      break;
     }
-    const opens = line.endsWith('{');
-    const head = (opens ? line.slice(0, -1) : line).trim();
-    if (!head) {
-      if (opens) stack.push((stack[stack.length - 1]![stack[stack.length - 1]!.length - 1] ?? { head: '', children: [] }).children);
-      continue;
+  };
+  const readHead = (): string => {
+    let buf = '';
+    let inq = '';
+    while (i < n) {
+      const c = src[i]!;
+      if (inq) { buf += c; if (c === inq) inq = ''; i++; continue; }
+      if (c === '"' || c === "'") { inq = c; buf += c; i++; continue; }
+      if (c === '\n' || c === '{' || c === '}') break;
+      if (c === '/' && src[i + 1] === '/') break;
+      buf += c;
+      i++;
     }
-    const node: RawNode = { head, children: [] };
-    stack[stack.length - 1]!.push(node);
-    if (opens) stack.push(node.children);
-  }
-  return roots;
+    return buf.trim();
+  };
+  const parseStatements = (): RawNode[] => {
+    const out: RawNode[] = [];
+    for (;;) {
+      skipWs();
+      if (i >= n || src[i] === '}') break;
+      const head = readHead();
+      const node: RawNode = { head, children: [] };
+      skipWs();
+      if (i < n && src[i] === '{') {
+        i++;
+        node.children = parseStatements();
+        skipWs();
+        if (i < n && src[i] === '}') i++;
+      }
+      if (head) out.push(node);
+    }
+    return out;
+  };
+  return parseStatements();
 }
 
 // ── Program model ────────────────────────────────────────────────────────────
