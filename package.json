@@ -1,0 +1,63 @@
+{
+  "name": "@noidmejs/atomkit",
+  "version": "0.1.0",
+  "description": "Headless, SSR-safe, atom-based visual builder. Every atom carries its own styling, data-binding, accessibility, analytics and security as plain data — render a JSON document to React, on the server or the client.",
+  "keywords": [
+    "visual-builder",
+    "page-builder",
+    "headless-cms",
+    "react",
+    "rsc",
+    "no-code",
+    "design-tokens",
+    "drag-and-drop",
+    "atoms",
+    "json-schema"
+  ],
+  "license": "MIT",
+  "author": "noidmejs",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./atoms": {
+      "types": "./dist/atoms.d.ts",
+      "default": "./dist/atoms.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.6.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/noidme-git/atomkit.git"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
