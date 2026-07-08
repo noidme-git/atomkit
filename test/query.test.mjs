@@ -71,4 +71,18 @@ const h2 = doc2.root[0].children[0].children[0];
 assert.equal(h2.props.text, 'Build with us', 'round-trip text');
 assert.equal(h2.style.responsive.md.fontSize, '4rem', 'round-trip responsive');
 
+// Unquoted URL values keep their `//` — regression: `//` used to be treated as a
+// comment mid-token, truncating `href=https://…` and swallowing the rest of the line.
+{
+  const d = compilePage(`page "L" {
+  button "Site" href=https://example.com/path?a=1 external track=go   // trailing comment
+  text "after"
+}`);
+  const [b, after] = d.root;
+  assert.equal(b.props.href, 'https://example.com/path?a=1', 'unquoted https:// URL kept whole');
+  assert.equal(b.props.external, true, 'attrs after the URL on the same line survive');
+  assert.equal(b.meta.analytics.id, 'go', 'track= after the URL is parsed');
+  assert.equal(after.props.text, 'after', 'trailing // comment (after space) ignored; next line intact');
+}
+
 console.log('✓ AQL compiler tests passed (' + ids.size + ' nodes, round-trip OK)');

@@ -125,7 +125,10 @@ function parseRaw(src: string): RawNode[] {
       if (inq) { buf += c; if (c === inq) inq = ''; i++; continue; }
       if (c === '"' || c === "'") { inq = c; buf += c; i++; continue; }
       if (c === '\n' || c === '{' || c === '}') break;
-      if (c === '/' && src[i + 1] === '/') break;
+      // `//` starts a trailing comment ONLY at head start or after whitespace — so
+      // an unquoted URL value (`href=https://…`) keeps its `//` instead of being
+      // truncated and having the rest of the line swallowed as a comment.
+      if (c === '/' && src[i + 1] === '/' && (buf === '' || /\s$/.test(buf))) break;
       buf += c;
       i++;
     }

@@ -2,6 +2,13 @@
 
 All notable changes to `@noidmejs/atomkit`. Pre-1.0: minor versions may break.
 
+## 0.5.1
+### Fixed
+- **AQL parser**: an unquoted URL value (`href=https://…`) was truncated at `//`
+  and the rest of the line swallowed as a comment. `//` now starts a trailing
+  comment only at head start or after whitespace, so unquoted `https://` URLs (and
+  the attributes after them) parse correctly. Quoted URLs were unaffected.
+
 ## 0.5.0
 ### Security / privacy (from the adversarial audit)
 - **PII masking is now by VALUE**: masks the data-binding target prop, content

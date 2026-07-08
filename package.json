@@ -1,6 +1,6 @@
 {
   "name": "@noidmejs/atomkit",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Headless, SSR-safe, atom-based visual builder with a declarative query language (AQL) + AI bridge. Every atom carries its own styling, data-binding, accessibility, analytics and security as plain data — author by DSL or AI (drag-and-drop editor on the roadmap); render a JSON document to React on the server or the client.",
   "keywords": [
     "visual-builder",
