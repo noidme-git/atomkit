@@ -87,10 +87,17 @@ function Chip({ props, style, className, a11y }: AtomRenderProps): ReactNode {
 
 function List({ props, style, className, children, a11y }: AtomRenderProps): ReactNode {
   const tag = isTrue(props.ordered) ? 'ol' : 'ul';
+  const noMarker = !props.marker;
+  // Removing list markers strips the list role in Safari/VoiceOver — restore it
+  // explicitly so the content is still announced as a list of N items (WCAG 1.3.1).
   const items = Array.isArray(children)
-    ? children.map((c, i) => createElement('li', { key: i }, c))
+    ? children.map((c, i) => createElement('li', noMarker ? { key: i, role: 'listitem' } : { key: i }, c))
     : children;
-  return createElement(tag, { className, style: { display: 'flex', flexDirection: 'column', gap: '8px', listStyle: props.marker ? undefined : 'none', margin: 0, padding: 0, ...style }, ...a11y }, items);
+  return createElement(
+    tag,
+    { className, role: noMarker ? 'list' : undefined, style: { display: 'flex', flexDirection: 'column', gap: '8px', listStyle: noMarker ? 'none' : undefined, margin: 0, padding: 0, ...style }, ...a11y },
+    items,
+  );
 }
 
 // Icon — an inline SVG from validated path data (no raw markup, no dependency).

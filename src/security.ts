@@ -30,34 +30,59 @@ export function isNodeVisible(node: BuilderNode, ctx: RenderContext): boolean {
   return true;
 }
 
-/** Whether a node's textual content should be masked (declared PII, viewer not permitted). */
+/** Whether a node's own content should be masked (declared PII, viewer not permitted). */
 export function shouldMaskPii(meta: NodeMeta | undefined, ctx: RenderContext): boolean {
   return !!meta?.security?.pii && !ctx.canViewPii;
 }
 
+export const PII_MASK = '•••••';
+
+// Renderable content props an atom may surface as visible text/media. When a
+// node is masked we blank these + its data-binding target, drop link/media
+// locators, mask a11y label text, drop analytics prop values, and drop the data
+// binding entirely — masking by VALUE, not just the fixed text/src/href names.
+const CONTENT_PROPS = ['text', 'label', 'value', 'summary', 'title', 'caption', 'alt'];
+
+/** Return a masked copy of a node — every renderable content value blanked and
+ *  any data binding removed so no PII value survives (or is re-fetched). */
+export function maskNode(node: BuilderNode): BuilderNode {
+  const props: Record<string, unknown> = { ...(node.props ?? {}) };
+  const targets = new Set<string>(CONTENT_PROPS);
+  if (node.data?.bindTo) targets.add(node.data.bindTo);
+  for (const k of targets) if (typeof props[k] === 'string') props[k] = PII_MASK;
+  delete props.src;
+  delete props.href;
+  const out: BuilderNode = { ...node, props };
+  delete out.data; // a masked node must not carry a static PII value nor fetch one
+  if (node.a11y) {
+    out.a11y = { ...node.a11y };
+    if (out.a11y.ariaLabel) out.a11y.ariaLabel = PII_MASK;
+    if (out.a11y.alt) out.a11y.alt = PII_MASK;
+    delete out.a11y.ariaDescribedby;
+  }
+  if (node.meta?.analytics?.props) {
+    out.meta = { ...node.meta, analytics: { ...node.meta.analytics, props: undefined } };
+  }
+  return out;
+}
+
 /**
  * Governance at egress: return a copy of the document with everything the viewer
- * may NOT see removed, and PII values masked — BEFORE it leaves the server. This
- * is the end-to-end guarantee: declare security/PII/consent on a node, strip it
- * server-side, and the client never receives what it isn't entitled to. Run this
- * on the server (in getServerSideProps / a route handler) before serialising the
- * document to the client; the renderer's per-node gating is defence-in-depth.
+ * may NOT see removed, and PII masked BY VALUE — BEFORE it leaves the server.
+ * PII masking cascades to descendants, so flagging a container `pii` protects its
+ * whole subtree. This is the end-to-end guarantee: declare on a node, strip
+ * server-side, and the client never receives what it isn't entitled to. The
+ * renderer's per-node gating is defence-in-depth on top of this.
  */
 export function stripDocument(doc: BuilderDocument, ctx: RenderContext): BuilderDocument {
-  const strip = (nodes: BuilderNode[]): BuilderNode[] =>
+  const strip = (nodes: BuilderNode[], maskedAncestor: boolean): BuilderNode[] =>
     nodes
       .filter((n) => isNodeVisible(n, ctx))
       .map((n) => {
-        let out: BuilderNode = n;
-        if (shouldMaskPii(n.meta, ctx)) {
-          const props = { ...n.props };
-          if ('text' in props) props.text = '•••••';
-          delete props.src;
-          delete props.href;
-          out = { ...n, props };
-        }
-        if (n.children) out = { ...out, children: strip(n.children) };
+        const masked = maskedAncestor || shouldMaskPii(n.meta, ctx);
+        let out = masked ? maskNode(n) : n;
+        if (n.children) out = { ...out, children: strip(n.children, masked) };
         return out;
       });
-  return { ...doc, root: strip(doc.root) };
+  return { ...doc, root: strip(doc.root, false) };
 }

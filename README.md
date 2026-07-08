@@ -96,8 +96,22 @@ const builder = createBuilder({
 
 ## Status
 
-**v0.1** — the document model, the SSR-safe renderer, and a starter atom set
-(`box`, `text`, `heading`, `button`, `image`, `divider`, `spacer`). The visual
-drag-and-drop editor and the responsive style panel are on the roadmap.
+**v0.5** — the document model + SSR-safe renderer, ~19 atoms (layout / content /
+media / disclosure), the **AQL** query language, the AI bridge, governance-at-egress
+(`stripDocument`), and an a11y `lint()`. Compile to standalone React with
+[`@noidmejs/atomkit-compiler`](https://www.npmjs.com/package/@noidmejs/atomkit-compiler)
+and connect to backends with
+[`@noidmejs/atomkit-http`](https://www.npmjs.com/package/@noidmejs/atomkit-http).
+The visual drag-and-drop editor is on the roadmap (not yet shipped).
+
+## Security & governance
+
+See [SECURITY.md](./SECURITY.md). In short: no raw HTML / no `eval`; style + URL
+whitelists; per-node `protected` / `roles` / `pii` / `consent`; **PII masked by value
+with subtree cascade**; `stripDocument(doc, ctx)` enforces governance at egress on
+the server; analytics are consent-gated. The **host** owns authentication, the
+authoritative consent/role facts (`RenderContext`), the CSP, and
+colour-contrast / focus / target-size. Report vulnerabilities via a GitHub Security
+Advisory. Pre-1.0 and not yet independently pen-tested.
 
 MIT © noidmejs

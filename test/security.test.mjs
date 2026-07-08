@@ -1,7 +1,7 @@
 // Security + governance tests — the fixes from the adversarial review.
 import assert from 'node:assert/strict';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Render, defaultAtoms, compilePage, stripDocument, getPath, resolveStyle } from '../dist/index.js';
+import { Render, defaultAtoms, compilePage, stripDocument, getPath, resolveStyle, lint } from '../dist/index.js';
 
 // 1. Style guards: url() blocked, position:fixed dropped, z-index capped, safe kept.
 const s = resolveStyle({ background: 'url(https://evil/?leak)', position: 'fixed', zIndex: 999999, color: '#fff' });
@@ -47,5 +47,38 @@ assert.ok(!renderToStaticMarkup(Render({ document: adoc, registry: defaultAtoms,
 let threw = false;
 try { compilePage('box {\n'.repeat(50) + '}'.repeat(50)); } catch { threw = true; }
 assert.ok(threw, 'deep nesting is rejected');
+
+// 8. Mask by VALUE — subtree cascade + bindTo/summary/aria-label, not just text/src/href.
+const gdoc = {
+  version: 1,
+  root: [
+    {
+      id: 'wrap', type: 'box', meta: { security: { pii: true } },
+      children: [
+        { id: 'a', type: 'accordion-item', props: { summary: 'John Doe SSN 123' } },
+        { id: 'b', type: 'heading', props: { text: 'x', level: 3 }, a11y: { ariaLabel: 'secret label' } },
+      ],
+    },
+  ],
+};
+const gLocked = renderToStaticMarkup(Render({ document: gdoc, registry: defaultAtoms, context: { canViewPii: false } }));
+assert.ok(!gLocked.includes('John Doe') && !gLocked.includes('secret label'), 'PII cascades + masks summary + aria-label (by value)');
+const gStrip = JSON.stringify(stripDocument(gdoc, { canViewPii: false }));
+assert.ok(!gStrip.includes('John Doe') && !gStrip.includes('secret label'), 'stripDocument masks nested summary + aria-label in the data');
+
+// 9. Registry prototype-pollution: node.type='constructor' must fail-closed, not throw.
+const proto = { version: 1, root: [{ id: 'p', type: 'constructor', props: {} }] };
+const protoHtml = renderToStaticMarkup(Render({ document: proto, registry: defaultAtoms }));
+assert.ok(!protoHtml.includes('function'), 'prototype-member type renders nothing (no throw)');
+
+// 10. image-set()/cross-fade() blocked in style (URL-bearing CSS functions).
+assert.equal(resolveStyle({ backgroundImage: 'image-set("https://evil/x" 1x)' }).backgroundImage, undefined, 'image-set() blocked');
+
+// 11. List keeps list semantics (role) when markers are removed.
+const listHtml = renderToStaticMarkup(Render({ document: compilePage('page "t" { list { text "a" text "b" } }'), registry: defaultAtoms }));
+assert.ok(listHtml.includes('role="list"') && listHtml.includes('role="listitem"'), 'list role restored when markerless');
+
+// 12. a11y lint flags a missing image alt.
+assert.ok(lint({ version: 1, root: [{ id: 'i', type: 'image', props: { src: '/x.webp' } }] }).some((w) => w.rule === 'img-alt'), 'lint flags missing alt');
 
 console.log('✓ security + governance tests passed');

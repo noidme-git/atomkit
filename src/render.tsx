@@ -2,7 +2,7 @@ import { createElement, Fragment, type ReactNode } from 'react';
 import type { BuilderNode, BuilderDocument } from './schema.js';
 import type { Registry, AtomRenderProps } from './registry.js';
 import type { RenderContext } from './security.js';
-import { isNodeVisible, shouldMaskPii } from './security.js';
+import { isNodeVisible, shouldMaskPii, maskNode, PII_MASK } from './security.js';
 import { resolveStyle, mediaCss } from './style.js';
 import { DataBound } from './data.js';
 
@@ -37,49 +37,50 @@ export function renderNode(
   registry: Registry,
   ctx: RenderContext,
   collect: (css: string) => void,
+  maskedAncestor = false,
 ): ReactNode {
   if (!isNodeVisible(node, ctx)) {
     const ph = ctx.renderProtectedPlaceholder?.(node);
     return ph ? createElement(Fragment, { key: node.id }, ph as ReactNode) : null;
   }
-  const def = registry[node.type];
-  if (!def) return null; // unknown type → skip (fail-closed against stale/hand-edited docs)
+  // Own-property lookup only — stop Object.prototype members ('constructor',
+  // 'toString', …) used as a node.type from resolving through the prototype chain.
+  if (!Object.hasOwn(registry, node.type)) return null; // unknown type → fail-closed
+  const def = registry[node.type]!;
 
-  // Only use the node id as a CSS selector when it is selector-safe. AQL ids are
-  // path-based (safe), but hand-authored documents are untrusted — this closes the
-  // "id → .ak-<id> selector" injection half of the chained CSS-exfil bug.
+  // PII masking — own node OR inherited from a masked ancestor (subtree cascade),
+  // enforced HERE for EVERY atom, by value, fail-closed. `eff` is the masked view.
+  const masked = maskedAncestor || shouldMaskPii(node.meta, ctx);
+  const eff = masked ? maskNode(node) : node;
+
+  // Only use the node id as a CSS selector when it is selector-safe (closes the
+  // "id → .ak-<id> selector" injection half of the chained CSS-exfil bug).
   const idSafe = /^[A-Za-z0-9_-]+$/.test(node.id);
   const className = node.style?.responsive && idSafe ? `ak-${node.id}` : undefined;
   if (className) collect(mediaCss(`.${className}`, node.style?.responsive));
 
   const style = resolveStyle(node.style);
   const children = node.children?.length
-    ? node.children.map((c) => renderNode(c, registry, ctx, collect))
+    ? node.children.map((c) => renderNode(c, registry, ctx, collect, masked))
     : undefined;
-  const a11y = a11yAttrs(node);
+  const a11y = a11yAttrs(eff);
   // Analytics attributes are consent-gated — suppressed when analytics consent is denied.
-  const analytics = ctx.consent?.analytics === false ? {} : analyticsAttrs(node);
-  // PII masking is enforced HERE, for EVERY atom, fail-closed — not inside one atom.
-  const masked = shouldMaskPii(node.meta, ctx);
+  const analytics = ctx.consent?.analytics === false ? {} : analyticsAttrs(eff);
 
   const renderWith = (data: unknown): ReactNode => {
-    const bindTo = node.data?.bindTo ?? 'text';
-    let props: Record<string, unknown> =
-      data !== undefined ? { ...node.props, [bindTo]: data } : { ...node.props };
-    if (masked) {
-      props = { ...props };
-      if ('text' in props) props.text = '•••••';
-      delete props.src;
-      delete props.href;
-    }
+    const bindTo = eff.data?.bindTo ?? 'text';
+    const props: Record<string, unknown> = { ...eff.props };
+    if (data !== undefined) props[bindTo] = masked ? PII_MASK : data;
     const atomProps: AtomRenderProps = { node, props, style, className, children, ctx, a11y, analytics };
     return def.render(atomProps);
   };
 
-  if (node.data?.source.kind === 'api') {
-    return createElement(DataBound, { key: node.id, binding: node.data, render: renderWith });
+  // A masked node's data binding was dropped by maskNode, so it neither fetches
+  // nor surfaces a static PII value.
+  if (eff.data?.source.kind === 'api') {
+    return createElement(DataBound, { key: node.id, binding: eff.data, render: renderWith });
   }
-  const staticData = node.data?.source.kind === 'static' ? node.data.source.value : undefined;
+  const staticData = eff.data?.source.kind === 'static' ? eff.data.source.value : undefined;
   return createElement(Fragment, { key: node.id }, renderWith(staticData));
 }
 
