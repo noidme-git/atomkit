@@ -1,7 +1,7 @@
 import { createElement, type ReactNode } from 'react';
-import type { AtomRenderProps, Registry } from './registry';
-import { safeHref, safeImageSrc } from './url';
-import { shouldMaskPii } from './security';
+import type { AtomRenderProps, Registry } from './registry.js';
+import { safeHref, safeImageSrc } from './url.js';
+import { shouldMaskPii } from './security.js';
 
 const asStr = (v: unknown, fallback = ''): string => (v == null ? fallback : String(v));
 

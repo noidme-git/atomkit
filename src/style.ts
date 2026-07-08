@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import type { StyleProps } from './schema';
+import type { StyleProps } from './schema.js';
 
 // Properties copied straight through (after value cleaning). Shorthands
 // (padding/margin X-Y, gradient, background) are expanded separately below.

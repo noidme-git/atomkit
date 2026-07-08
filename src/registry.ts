@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
-import type { BuilderNode } from './schema';
-import type { RenderContext } from './security';
+import type { BuilderNode } from './schema.js';
+import type { RenderContext } from './security.js';
 
 // What every atom component receives. The renderer has already resolved the
 // node's style, merged any data binding into `props`, and computed the a11y +

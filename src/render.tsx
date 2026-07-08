@@ -1,10 +1,10 @@
 import { createElement, Fragment, type ReactNode } from 'react';
-import type { BuilderNode, BuilderDocument } from './schema';
-import type { Registry, AtomRenderProps } from './registry';
-import type { RenderContext } from './security';
-import { isNodeVisible } from './security';
-import { resolveStyle, mediaCss } from './style';
-import { DataBound } from './data';
+import type { BuilderNode, BuilderDocument } from './schema.js';
+import type { Registry, AtomRenderProps } from './registry.js';
+import type { RenderContext } from './security.js';
+import { isNodeVisible } from './security.js';
+import { resolveStyle, mediaCss } from './style.js';
+import { DataBound } from './data.js';
 
 function a11yAttrs(node: BuilderNode): Record<string, unknown> {
   const a = node.a11y;

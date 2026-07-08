@@ -163,10 +163,10 @@ export interface BuilderDocument {
 // ── Zod (write-time validation) ──────────────────────────────────────────────
 // Style is validated structurally as string/number leaves; the render-time
 // whitelist (style.ts) is the real guard against unknown properties / bad values.
-const styleLeaf = z.union([z.string(), z.number(), z.boolean()]);
-const styleSchema: z.ZodType<Record<string, unknown>> = z.lazy(() =>
-  z.record(z.union([styleLeaf, z.record(styleLeaf)])),
-);
+// Structural only — the render-time whitelist (style.ts) is the real guard
+// against unknown properties / injection, so this stays permissive enough to
+// accept nested `responsive` overrides and any valid CSS value.
+const styleSchema: z.ZodType<Record<string, unknown>> = z.record(z.unknown());
 
 const dataSourceSchema = z.union([
   z.object({ kind: z.literal('static'), value: z.unknown().optional() }),

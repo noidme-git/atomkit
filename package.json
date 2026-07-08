@@ -1,7 +1,7 @@
 {
   "name": "@noidmejs/atomkit",
-  "version": "0.1.0",
-  "description": "Headless, SSR-safe, atom-based visual builder. Every atom carries its own styling, data-binding, accessibility, analytics and security as plain data — render a JSON document to React, on the server or the client.",
+  "version": "0.2.0",
+  "description": "Headless, SSR-safe, atom-based visual builder with a declarative query language (AQL) + AI bridge. Every atom carries its own styling, data-binding, accessibility, analytics and security as plain data — author by DSL, by AI, or by drag-and-drop; render a JSON document to React on the server or the client.",
   "keywords": [
     "visual-builder",
     "page-builder",
@@ -36,6 +36,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node test/query.test.mjs",
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {

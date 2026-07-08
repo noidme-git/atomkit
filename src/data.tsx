@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type ReactNode } from 'react';
-import type { DataBinding } from './schema';
+import type { DataBinding } from './schema.js';
 
 /** Read a dot/bracket path out of a JSON value: getPath(json, "data.items.0.title"). */
 export function getPath(obj: unknown, path?: string): unknown {

@@ -1,4 +1,4 @@
-import type { BuilderNode, NodeMeta } from './schema';
+import type { BuilderNode, NodeMeta } from './schema.js';
 
 // The runtime permission/consent context passed to the renderer. The HOST app
 // owns auth + consent and passes the resolved facts in; atomkit only enforces
