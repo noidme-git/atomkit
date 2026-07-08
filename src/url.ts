@@ -4,6 +4,7 @@ export function safeHref(href: unknown): string {
   if (typeof href !== 'string') return '#';
   const s = href.trim();
   if (!s) return '#';
+  if (s.length > 2048) return '#';
   if (/^(#|\?|\.)/.test(s)) return s;
   if (/^\/(?![/\\])/.test(s)) return s; // relative path, not protocol-relative //host
   if (/^(https?:|mailto:|tel:)/i.test(s)) return s;
@@ -15,9 +16,10 @@ export function safeHref(href: unknown): string {
 export function safeImageSrc(src: unknown): string | undefined {
   if (typeof src !== 'string') return undefined;
   const s = src.trim();
-  if (!s) return undefined;
+  if (!s || s.length > 100000) return undefined;
   if (/^\/(?![/\\])/.test(s)) return s;
   if (/^https:\/\//i.test(s)) return s;
-  if (/^data:image\//i.test(s)) return s;
+  // data: images only for raster formats — NOT svg (data:image/svg+xml can carry script).
+  if (/^data:image\/(png|jpe?g|gif|webp|avif);/i.test(s)) return s;
   return undefined;
 }

@@ -9,6 +9,7 @@ export function getPath(obj: unknown, path?: string): unknown {
   let cur: unknown = obj;
   for (const seg of path.split(/[.[\]]+/).filter(Boolean)) {
     if (cur == null) return undefined;
+    if (seg === '__proto__' || seg === 'constructor' || seg === 'prototype') return undefined;
     cur = (cur as Record<string, unknown>)[seg];
   }
   return cur;

@@ -1,7 +1,6 @@
 import { createElement, type CSSProperties, type ReactNode } from 'react';
 import type { AtomRenderProps, Registry } from './registry.js';
 import { safeHref, safeImageSrc } from './url.js';
-import { shouldMaskPii } from './security.js';
 import { VideoEmbed } from './media.js';
 
 const asStr = (v: unknown, fallback = ''): string => (v == null ? fallback : String(v));
@@ -56,10 +55,10 @@ function Stack({ style, className, children, a11y, analytics }: AtomRenderProps)
 
 // ── Content ──────────────────────────────────────────────────────────────────
 const TEXT_TAGS = new Set(['p', 'span', 'div', 'small', 'strong', 'em', 'label', 'blockquote']);
-function Text({ node, props, style, className, ctx, a11y, analytics }: AtomRenderProps): ReactNode {
+function Text({ props, style, className, a11y, analytics }: AtomRenderProps): ReactNode {
+  // PII masking is enforced in renderNode (all atoms), so Text just reads props.text.
   const tag = TEXT_TAGS.has(asStr(props.as)) ? asStr(props.as) : 'p';
-  const text = shouldMaskPii(node.meta, ctx) ? '•••••' : asStr(props.text);
-  return createElement(tag, { className, style, ...a11y, ...analytics }, text);
+  return createElement(tag, { className, style, ...a11y, ...analytics }, asStr(props.text));
 }
 
 function Heading({ props, style, className, a11y, analytics }: AtomRenderProps): ReactNode {

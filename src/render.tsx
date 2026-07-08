@@ -2,7 +2,7 @@ import { createElement, Fragment, type ReactNode } from 'react';
 import type { BuilderNode, BuilderDocument } from './schema.js';
 import type { Registry, AtomRenderProps } from './registry.js';
 import type { RenderContext } from './security.js';
-import { isNodeVisible } from './security.js';
+import { isNodeVisible, shouldMaskPii } from './security.js';
 import { resolveStyle, mediaCss } from './style.js';
 import { DataBound } from './data.js';
 
@@ -45,7 +45,11 @@ export function renderNode(
   const def = registry[node.type];
   if (!def) return null; // unknown type → skip (fail-closed against stale/hand-edited docs)
 
-  const className = node.style?.responsive ? `ak-${node.id}` : undefined;
+  // Only use the node id as a CSS selector when it is selector-safe. AQL ids are
+  // path-based (safe), but hand-authored documents are untrusted — this closes the
+  // "id → .ak-<id> selector" injection half of the chained CSS-exfil bug.
+  const idSafe = /^[A-Za-z0-9_-]+$/.test(node.id);
+  const className = node.style?.responsive && idSafe ? `ak-${node.id}` : undefined;
   if (className) collect(mediaCss(`.${className}`, node.style?.responsive));
 
   const style = resolveStyle(node.style);
@@ -53,12 +57,21 @@ export function renderNode(
     ? node.children.map((c) => renderNode(c, registry, ctx, collect))
     : undefined;
   const a11y = a11yAttrs(node);
-  const analytics = analyticsAttrs(node);
+  // Analytics attributes are consent-gated — suppressed when analytics consent is denied.
+  const analytics = ctx.consent?.analytics === false ? {} : analyticsAttrs(node);
+  // PII masking is enforced HERE, for EVERY atom, fail-closed — not inside one atom.
+  const masked = shouldMaskPii(node.meta, ctx);
 
   const renderWith = (data: unknown): ReactNode => {
     const bindTo = node.data?.bindTo ?? 'text';
-    const props: Record<string, unknown> =
+    let props: Record<string, unknown> =
       data !== undefined ? { ...node.props, [bindTo]: data } : { ...node.props };
+    if (masked) {
+      props = { ...props };
+      if ('text' in props) props.text = '•••••';
+      delete props.src;
+      delete props.href;
+    }
     const atomProps: AtomRenderProps = { node, props, style, className, children, ctx, a11y, analytics };
     return def.render(atomProps);
   };

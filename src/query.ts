@@ -131,7 +131,9 @@ function parseRaw(src: string): RawNode[] {
     }
     return buf.trim();
   };
-  const parseStatements = (): RawNode[] => {
+  const MAX_DEPTH = 32;
+  const parseStatements = (depth: number): RawNode[] => {
+    if (depth > MAX_DEPTH) throw new Error(`AQL nesting too deep (> ${MAX_DEPTH})`);
     const out: RawNode[] = [];
     for (;;) {
       skipWs();
@@ -141,7 +143,7 @@ function parseRaw(src: string): RawNode[] {
       skipWs();
       if (i < n && src[i] === '{') {
         i++;
-        node.children = parseStatements();
+        node.children = parseStatements(depth + 1);
         skipWs();
         if (i < n && src[i] === '}') i++;
       }
@@ -149,7 +151,7 @@ function parseRaw(src: string): RawNode[] {
     }
     return out;
   };
-  return parseStatements();
+  return parseStatements(0);
 }
 
 // ── Program model ────────────────────────────────────────────────────────────
@@ -234,16 +236,18 @@ function applyAttr(
   (node.props ??= {})[key] = coerce(value);
 }
 
-let idCounter = 0;
-function nextId(type: string): string {
-  idCounter += 1;
-  return `${type}-${idCounter}`;
-}
+interface CompileCtx { count: number }
+const MAX_NODES = 2000;
 
-function compileNode(raw: RawNode): BuilderNode {
+// Deterministic, selector-safe id from the node's tree path (e.g. "0-1-2") —
+// stable across recompiles and safe to interpolate into a CSS class (kills the
+// old mutable module counter and the "id → .ak-<id> selector" injection risk).
+function compileNode(raw: RawNode, path: number[], ctx: CompileCtx): BuilderNode {
+  ctx.count += 1;
+  if (ctx.count > MAX_NODES) throw new Error(`AQL document too large (> ${MAX_NODES} nodes)`);
   const toks = tokenize(raw.head);
   const type = toks[0]?.v ?? 'box';
-  const node: BuilderNode = { id: nextId(type), type };
+  const node: BuilderNode = { id: path.length ? path.join('-') : '0', type };
   let idx = 1;
   if (toks[idx]?.q) {
     (node.props ??= {}).text = toks[idx]!.v;
@@ -255,7 +259,7 @@ function compileNode(raw: RawNode): BuilderNode {
     if (eq > 0 && !tok.q) applyAttr(node, tok.v.slice(0, eq), tok.v.slice(eq + 1), false);
     else applyAttr(node, tok.v, undefined, true);
   }
-  if (raw.children.length) node.children = raw.children.map(compileNode);
+  if (raw.children.length) node.children = raw.children.map((c, i) => compileNode(c, [...path, i], ctx));
   return node;
 }
 
@@ -266,7 +270,8 @@ function readHeader(head: string): { keyword: string; title: string; attrs: Tok[
 
 /** Parse AQL source into a program of pages + reusable widgets. */
 export function parse(src: string): AqlProgram {
-  idCounter = 0;
+  if (src.length > 100000) throw new Error('AQL source too large (> 100000 chars)');
+  const ctx: CompileCtx = { count: 0 };
   const roots = parseRaw(src);
   const pages: AqlPage[] = [];
   const widgets: AqlWidget[] = [];
@@ -281,7 +286,7 @@ export function parse(src: string): AqlProgram {
         const eq = a.v.indexOf('=');
         if (eq > 0 && a.v.slice(0, eq) === 'desc') description = unquote(a.v.slice(eq + 1));
       }
-      const nodes = r.children.map(compileNode);
+      const nodes = r.children.map((c, i) => compileNode(c, [i], ctx));
       pages.push({
         title: title || 'Untitled',
         description,
@@ -289,18 +294,18 @@ export function parse(src: string): AqlProgram {
       });
     } else if (kw === 'widget') {
       const { title } = readHeader(r.head);
-      const kids = r.children.map(compileNode);
+      const kids = r.children.map((c, i) => compileNode(c, [i], ctx));
       const node =
         kids.length === 1
           ? kids[0]!
-          : { id: nextId('box'), type: 'box', children: kids };
+          : { id: 'root', type: 'box', children: kids };
       widgets.push({ name: title || 'widget', node });
     } else {
       loose.push(r);
     }
   }
   if (loose.length) {
-    pages.unshift({ title: 'Untitled', document: { version: 1, root: loose.map(compileNode) } });
+    pages.unshift({ title: 'Untitled', document: { version: 1, root: loose.map((c, i) => compileNode(c, [i], ctx)) } });
   }
   // Validate every produced document (throws on a malformed tree).
   for (const p of pages) parseDocument(p.document);

