@@ -8,6 +8,7 @@ export * from './registry.js';
 export * from './render.js';
 export * from './url.js';
 export * from './lint.js';
+export * from './instrument.js';
 export * from './query.js';
 export * from './ai.js';
 export { DataBound, getPath } from './data.js';
