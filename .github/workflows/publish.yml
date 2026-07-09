@@ -1,20 +1,28 @@
 name: Publish
 
-# Publishes to npm when a `v*` tag is pushed, e.g.:
-#   git tag v0.6.0 && git push origin v0.6.0
+# Publishes this package to npm.
 #
-# Requires an `NPM_TOKEN` repository secret (an npm automation token, so it works
-# with 2FA). The tag must match the version in package.json or the job fails
-# before publishing — a mismatched tag is how a wrong version reaches npm, and an
-# npm version can never be re-published once taken.
+# Triggered either by a `v*` tag, or by `workflow_dispatch` — which is how the
+# noidme-git/atomkit-release orchestrator drives an ecosystem-wide release in
+# dependency order.
 #
-# NOTE ON ORDER: the packages in this ecosystem depend on each other by exact
-# range. Publish in dependency order or a downstream `npm ci` cannot resolve:
-#   atomkit  →  atomkit-http  →  atomkit-compiler  →  atomkit-app
+# IDEMPOTENT: if the version in package.json is already on the registry, the job
+# succeeds without publishing. So re-running a release, or pushing to the release
+# branch when only one package changed, publishes only what actually changed. An
+# npm version can never be re-published once taken, so this is a guard, not a
+# convenience.
+#
+# Provenance is generated from THIS workflow's environment, which is why each
+# package must publish from its own repository: an attestation produced elsewhere
+# would name the wrong source repo.
+#
+# Requires an `NPM_TOKEN` repository secret (an npm *automation* token, so it is
+# exempt from the 2FA prompt).
 
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 jobs:
   publish:
@@ -30,21 +38,61 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
-      - name: Tag must match package.json version
+      - name: Resolve version and decide whether to publish
+        id: check
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          PKG="$(node -p 'require("./package.json").version')"
-          if [ "$TAG" != "$PKG" ]; then
-            echo "::error::tag v$TAG does not match package.json version $PKG"
-            exit 1
+          NAME="$(node -p 'require("./package.json").name')"
+          VERSION="$(node -p 'require("./package.json").version')"
+          echo "name=$NAME"       >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # A tag build must agree with package.json, or the wrong version ships.
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME#v}"
+            if [ "$TAG" != "$VERSION" ]; then
+              echo "::error::tag v$TAG does not match package.json version $VERSION"
+              exit 1
+            fi
           fi
-          echo "publishing $PKG"
 
-      - run: npm ci
-      - run: npm run build
-      - run: npm test
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "::notice::$NAME@$VERSION is already on npm — nothing to publish"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::$NAME@$VERSION is not on npm — will publish"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Publish
+      # `npm install`, not `npm ci`: a package whose sibling dependency was only
+      # just published has a lockfile that still pins the previous version, and
+      # `npm ci` refuses a lockfile that disagrees with package.json. Strict
+      # `npm ci` is enforced separately by ci.yml.
+      - if: steps.check.outputs.publish == 'true'
+        run: npm install --no-audit --no-fund
+
+      - if: steps.check.outputs.publish == 'true'
+        run: npm run build
+
+      - if: steps.check.outputs.publish == 'true'
+        run: npm test
+
+      - name: Publish to npm
+        if: steps.check.outputs.publish == 'true'
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Confirm it is live on the registry
+        if: steps.check.outputs.publish == 'true'
+        run: |
+          NAME="${{ steps.check.outputs.name }}"
+          VERSION="${{ steps.check.outputs.version }}"
+          for i in $(seq 1 30); do
+            if [ "$(npm view "$NAME@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
+              echo "::notice::$NAME@$VERSION is live"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::$NAME@$VERSION did not appear on the registry"
+          exit 1
