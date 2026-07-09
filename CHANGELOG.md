@@ -2,6 +2,51 @@
 
 All notable changes to `@noidmejs/atomkit`. Pre-1.0: minor versions may break.
 
+## 0.7.0
+
+Toolchain and validation hardening. Every change below was verified by executing
+the built output; the schema changes are covered by the new `test/schema.test.mjs`.
+
+### BREAKING
+- **Node >= 22.** `engines` was `">=18"`, but Node 18 reached end-of-life on
+  2025-04-30 and Node 20 on 2026-04-30 (per `nodejs/Release/schedule.json`). The
+  package also relies on global `fetch`, stable only from Node 21. Installing on
+  Node 18/20/21 now fails with `EBADENGINE` under `--engine-strict`. CI tests on
+  22 (maintenance LTS), 24 (active LTS) and 26 (current).
+- **`zod` 3 → 4.** `zod` is a *runtime* dependency and this package re-exports
+  zod-typed values (`documentSchema`, `nodeSchema`) from its public `.d.ts`. Those
+  exported types now reference zod-4-only internals, so a consumer pinned to zod 3
+  who references them will hit type errors. Consumers who only call
+  `parseDocument()` are unaffected. Runtime validation behaviour is unchanged —
+  verified: identical `unrecognized_keys` rejection on both majors.
+- **Every object in the document is now strict.** Previously only the *node* level
+  rejected unknown keys, so `a11y: { onclick: … }`, `meta: { evil: … }`,
+  `meta.security: { bypass: true }` and `data.source: { evil: 1 }` all validated
+  cleanly. Nothing read them, so it was never exploitable — but a schema that
+  shrugs at input it does not understand is not a trust boundary. A document
+  carrying extra keys anywhere will now be rejected by `parseDocument()`.
+- **Duplicate node ids are rejected.** Nothing checked. Two nodes sharing an id
+  share the generated responsive rule `.ak-<id>` — one silently restyles the other,
+  last rule winning — and they collide as React keys. `parseDocument()` now throws;
+  `lint()` reports a `unique-id` warning (because `Render()` never validates).
+
+### Fixed
+- `z.record(value)` → `z.record(z.string(), value)` in four places in `schema.ts`.
+  zod 4 removed the single-argument form. The two-argument form is accepted by zod
+  3 as well, so this edit is version-agnostic.
+- `.strict()` → `z.strictObject()` throughout; `.strict()` is deprecated in zod 4.
+
+### Changed
+- `typescript` devDependency → `^7.0.0`. Emitted `.js` and `.d.ts` are byte-identical
+  to the 5.9.3 output (only sourcemap `mappings` differ).
+- `prepublishOnly` now runs `npm run build && npm test`, not just the build. A
+  broken test suite could previously be published.
+
+### Added
+- **`test/schema.test.mjs`** — the suite never once exercised `parseDocument`,
+  `documentSchema` or `nodeSchema`. The strict rejection that governance leans on
+  was entirely untested, and would have stayed green through a zod major bump.
+
 ## 0.6.0
 
 A multi-lens audit found that three of this package's headline guarantees did not

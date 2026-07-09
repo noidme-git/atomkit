@@ -14,9 +14,18 @@ export interface LintWarning {
  */
 export function lint(doc: BuilderDocument): LintWarning[] {
   const out: LintWarning[] = [];
+  // Render() never calls parseDocument, so a hand-built or editor-built document
+  // can reach the renderer with duplicate ids and silently cross-apply its
+  // responsive CSS. lint() must surface that without throwing.
+  const seenIds = new Set<string>();
   const walk = (n: BuilderNode): void => {
     const p = n.props ?? {};
     const warn = (rule: string, message: string) => out.push({ id: n.id, type: n.type, rule, message });
+
+    if (seenIds.has(n.id)) {
+      warn('unique-id', `duplicate node id "${n.id}" — responsive styles (.ak-${n.id}) cross-apply and React keys collide`);
+    }
+    seenIds.add(n.id);
 
     if (n.type === 'image') {
       const alt = n.a11y?.alt ?? (p.alt as string | undefined);

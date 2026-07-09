@@ -166,15 +166,22 @@ export interface BuilderDocument {
 // Structural only — the render-time whitelist (style.ts) is the real guard
 // against unknown properties / injection, so this stays permissive enough to
 // accept nested `responsive` overrides and any valid CSS value.
-const styleSchema: z.ZodType<Record<string, unknown>> = z.record(z.unknown());
+const styleSchema: z.ZodType<Record<string, unknown>> = z.record(z.string(), z.unknown());
 
+// Every object in the document is STRICT: an unknown key is a rejection, not a
+// shrug. Only the node level used to be strict, so `a11y: { onclick: … }`,
+// `meta.security: { bypass: true }` and `data.source: { evil: 1 }` all validated
+// cleanly. Nothing read them, so it was never exploitable — but "schema-valid"
+// must mean "exactly this shape", or the schema is not a trust boundary.
+//
+// z.strictObject is zod 4's supported form; `.strict()` is deprecated.
 const dataSourceSchema = z.union([
-  z.object({ kind: z.literal('static'), value: z.unknown().optional() }),
-  z.object({
+  z.strictObject({ kind: z.literal('static'), value: z.unknown().optional() }),
+  z.strictObject({
     kind: z.literal('api'),
     url: z.string(),
     method: z.enum(['GET', 'POST']).optional(),
-    headers: z.record(z.string()).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
     body: z.string().optional(),
     path: z.string().optional(),
     ttl: z.number().optional(),
@@ -182,59 +189,79 @@ const dataSourceSchema = z.union([
 ]);
 
 export const nodeSchema: z.ZodType<BuilderNode> = z.lazy(() =>
-  z
-    .object({
-      id: z.string(),
-      type: z.string(),
-      props: z.record(z.unknown()).optional(),
-      style: styleSchema.optional(),
-      data: z.object({ source: dataSourceSchema, bindTo: z.string().optional() }).optional(),
-      a11y: z
-        .object({
-          role: z.string().optional(),
-          ariaLabel: z.string().optional(),
-          ariaHidden: z.boolean().optional(),
-          ariaDescribedby: z.string().optional(),
-          tabIndex: z.number().optional(),
-          alt: z.string().optional(),
-          lang: z.string().optional(),
-        })
-        .optional(),
-      meta: z
-        .object({
-          tags: z.array(z.string()).optional(),
-          analytics: z
-            .object({
-              id: z.string().optional(),
-              event: z.string().optional(),
-              category: z.string().optional(),
-              props: z.record(z.string()).optional(),
-            })
-            .optional(),
-          security: z
-            .object({
-              protected: z.boolean().optional(),
-              roles: z.array(z.string()).optional(),
-              pii: z.boolean().optional(),
-              consentCategory: z.string().optional(),
-            })
-            .optional(),
-          note: z.string().optional(),
-        })
-        .optional(),
-      children: z.array(nodeSchema).optional(),
-      hidden: z.boolean().optional(),
-    })
-    .strict(),
+  z.strictObject({
+    id: z.string(),
+    type: z.string(),
+    props: z.record(z.string(), z.unknown()).optional(),
+    style: styleSchema.optional(),
+    data: z.strictObject({ source: dataSourceSchema, bindTo: z.string().optional() }).optional(),
+    a11y: z
+      .strictObject({
+        role: z.string().optional(),
+        ariaLabel: z.string().optional(),
+        ariaHidden: z.boolean().optional(),
+        ariaDescribedby: z.string().optional(),
+        tabIndex: z.number().optional(),
+        alt: z.string().optional(),
+        lang: z.string().optional(),
+      })
+      .optional(),
+    meta: z
+      .strictObject({
+        tags: z.array(z.string()).optional(),
+        analytics: z
+          .strictObject({
+            id: z.string().optional(),
+            event: z.string().optional(),
+            category: z.string().optional(),
+            props: z.record(z.string(), z.string()).optional(),
+          })
+          .optional(),
+        security: z
+          .strictObject({
+            protected: z.boolean().optional(),
+            roles: z.array(z.string()).optional(),
+            pii: z.boolean().optional(),
+            consentCategory: z.string().optional(),
+          })
+          .optional(),
+        note: z.string().optional(),
+      })
+      .optional(),
+    children: z.array(nodeSchema).optional(),
+    hidden: z.boolean().optional(),
+  }),
 ) as z.ZodType<BuilderNode>;
 
-export const documentSchema = z.object({
+export const documentSchema = z.strictObject({
   version: z.number(),
   root: z.array(nodeSchema),
-  meta: z.object({ title: z.string().optional(), description: z.string().optional() }).optional(),
+  meta: z.strictObject({ title: z.string().optional(), description: z.string().optional() }).optional(),
 });
+
+/**
+ * Node ids must be unique across the whole document.
+ *
+ * Nothing used to check. Two nodes sharing an id share the generated responsive
+ * rule `.ak-<id>` — so one node silently restyles the other, last rule winning —
+ * and they collide as React keys. A visual editor mints ids constantly, which is
+ * exactly where duplicates come from.
+ */
+function assertUniqueIds(doc: BuilderDocument): void {
+  const seen = new Set<string>();
+  const walk = (nodes: BuilderNode[]): void => {
+    for (const n of nodes) {
+      if (seen.has(n.id)) throw new Error(`duplicate node id "${n.id}" — node ids must be unique within a document`);
+      seen.add(n.id);
+      if (n.children) walk(n.children);
+    }
+  };
+  walk(doc.root);
+}
 
 /** Validate + return a typed document, or throw with issues. */
 export function parseDocument(input: unknown): BuilderDocument {
-  return documentSchema.parse(input) as BuilderDocument;
+  const doc = documentSchema.parse(input) as BuilderDocument;
+  assertUniqueIds(doc);
+  return doc;
 }
