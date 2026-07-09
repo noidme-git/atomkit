@@ -129,6 +129,17 @@ function parseRaw(src: string): RawNode[] {
       const c = src[i]!;
       if (inq) { buf += c; if (c === inq) inq = ''; i++; continue; }
       if (c === '"' || c === "'") { inq = c; buf += c; i++; continue; }
+      // An unquoted `{` directly after `=` is an attribute VALUE, not a block.
+      // Without this it silently opened a block: `box document={{state.doc}}` parsed
+      // to `props.document = ""`, and `box a=1 document={{x}} b=2` split into two
+      // nodes, inventing an atom named `b=2` which then failed closed and rendered
+      // nothing. Silent content loss is worse than a parse error.
+      if (c === '{' && /=$/.test(buf)) {
+        const attr = /([\w:-]+)=$/.exec(buf)?.[1] ?? 'attribute';
+        throw new Error(
+          `AQL: unquoted "{" in the value of "${attr}". Quote it — ${attr}="{{ … }}" — or remove it; a bare "{" opens a block.`,
+        );
+      }
       if (c === '\n' || c === '{' || c === '}') break;
       // `//` starts a trailing comment ONLY at head start or after whitespace — so
       // an unquoted URL value (`href=https://…`) keeps its `//` instead of being

@@ -204,4 +204,22 @@ const styleOf = (h) => (h.match(/style="([^"]*)"/) ?? [, ''])[1];
   assert.deepEqual(known.meta.tags, ['t'], 'meta survives');
 }
 
+// ── 10. An unquoted `{` in a value silently corrupted the document ──────────
+// `{` opens a block, so `box document={{state.doc}}` parsed to props.document = ""
+// and `box a=1 document={{x}} b=2` SPLIT into two nodes, inventing an atom named
+// `b=2` which then failed closed and rendered nothing. No error either time.
+// Found while red-teaming the AQL 1.0 interpolation syntax.
+{
+  assert.throws(() => compilePage('page "p" {\n  box document={{state.doc}}\n}'),
+    /unquoted "\{" in the value of "document"/, 'a bare { in a value must be a parse error');
+  assert.throws(() => compilePage('page "p" {\n  box a=1 document={{x}} b=2\n}'),
+    /unquoted "\{"/, 'the node-splitting form must also throw');
+
+  // Quoted interpolation is unambiguous and must keep working.
+  assert.equal(compilePage('page "p" {\n  text "ok {{state.n}}"\n}').root[0].props.text, 'ok {{state.n}}');
+  // Ordinary blocks are untouched.
+  assert.equal(compilePage('page "p" {\n  box { text "child" }\n}').root[0].children.length, 1);
+  assert.equal(compilePage('page "p" {\n  container width=720px { text "x" }\n}').root[0].props.width, '720px');
+}
+
 console.log('✓ regression tests passed (dimension-prop sanitising, PII masking by value, mask read-around, egress-only fields, responsive cascade, analytics fail-closed, lossless serialize, coerce escape hatch)');
