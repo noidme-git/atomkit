@@ -17,12 +17,21 @@ fully described by data — nothing about it is hard-coded in a component:
 |-------|---------------|
 | `style` | typography, colour, gradient, background, size, spacing, border, effects — **plus responsive overrides** |
 | `data` | where content comes from — a static value, or an **API call + JSON path** |
-| `a11y` | `role`, `aria-*`, `alt`, `tabindex`, `lang` |
+| `a11y` | `role`, `aria-label`, `aria-hidden`, `aria-describedby`, `alt`, `tabindex`, `lang` |
 | `meta` | `tags`, `analytics` tracking, and `security` / consent gating |
 
-The renderer whitelists style properties and sanitises values, routes every URL
-through a scheme guard, and enforces each node's security rules — so a
-hand-authored or stale document can never inject script or leak protected content.
+The renderer whitelists style properties and sanitises values (including the
+dimension props that reach an inline style), routes every URL through a scheme
+guard, and enforces each node's security rules — so a hand-authored or stale
+document cannot inject script or CSS, or leak protected content, through the
+**render** path.
+
+> A document is still **trusted input** in one respect: an `api` data binding is
+> fetched client-side with the document's own method, headers and body, using the
+> browser's `same-origin` credentials, and is **not** host-allow-listed —
+> `connect-src 'self'` does not stop same-origin requests. Render untrusted or
+> AI-generated documents on the server (`stripDocument` + SSR), or strip their
+> bindings first. See [SECURITY.md](./SECURITY.md).
 
 ## Quick start
 
@@ -108,8 +117,10 @@ The visual drag-and-drop editor is on the roadmap (not yet shipped).
 
 See [SECURITY.md](./SECURITY.md). In short: no raw HTML / no `eval`; style + URL
 whitelists; per-node `protected` / `roles` / `pii` / `consent`; **PII masked by value
-with subtree cascade**; `stripDocument(doc, ctx)` enforces governance at egress on
-the server; analytics are consent-gated. The **host** owns authentication, the
+with subtree cascade** — every non-structural prop, whatever its name or type, on
+built-in and custom atoms alike; `stripDocument(doc, ctx)` enforces governance at
+egress on the server; analytics attributes **fail closed** and require an explicit
+`consent.analytics === true`. The **host** owns authentication, the
 authoritative consent/role facts (`RenderContext`), the CSP, and
 colour-contrast / focus / target-size. Report vulnerabilities via a GitHub Security
 Advisory. Pre-1.0 and not yet independently pen-tested.

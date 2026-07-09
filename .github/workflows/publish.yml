@@ -1,0 +1,50 @@
+name: Publish
+
+# Publishes to npm when a `v*` tag is pushed, e.g.:
+#   git tag v0.6.0 && git push origin v0.6.0
+#
+# Requires an `NPM_TOKEN` repository secret (an npm automation token, so it works
+# with 2FA). The tag must match the version in package.json or the job fails
+# before publishing — a mismatched tag is how a wrong version reaches npm, and an
+# npm version can never be re-published once taken.
+#
+# NOTE ON ORDER: the packages in this ecosystem depend on each other by exact
+# range. Publish in dependency order or a downstream `npm ci` cannot resolve:
+#   atomkit  →  atomkit-http  →  atomkit-compiler  →  atomkit-app
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Tag must match package.json version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p 'require("./package.json").version')"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::tag v$TAG does not match package.json version $PKG"
+            exit 1
+          fi
+          echo "publishing $PKG"
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+      - name: Publish
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

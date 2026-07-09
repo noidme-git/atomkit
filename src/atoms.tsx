@@ -1,6 +1,7 @@
 import { createElement, type CSSProperties, type ReactNode } from 'react';
 import type { AtomRenderProps, Registry } from './registry.js';
 import { safeHref, safeImageSrc } from './url.js';
+import { safeDim } from './style.js';
 import { VideoEmbed } from './media.js';
 
 const asStr = (v: unknown, fallback = ''): string => (v == null ? fallback : String(v));
@@ -21,7 +22,7 @@ function Section({ props, style, className, children, a11y, analytics }: AtomRen
     ? children
     : createElement(
         'div',
-        { style: { maxWidth: asStr(props.width, '1200px'), marginLeft: 'auto', marginRight: 'auto', paddingLeft: asStr(props.gutter, '20px'), paddingRight: asStr(props.gutter, '20px') } },
+        { style: { maxWidth: safeDim(props.width, '1200px'), marginLeft: 'auto', marginRight: 'auto', paddingLeft: safeDim(props.gutter, '20px'), paddingRight: safeDim(props.gutter, '20px') } },
         children,
       );
   return createElement('section', { className, style: { paddingTop: '72px', paddingBottom: '72px', ...style }, ...a11y, ...analytics }, inner);
@@ -30,15 +31,18 @@ function Section({ props, style, className, children, a11y, analytics }: AtomRen
 function Container({ props, style, className, children, a11y, analytics }: AtomRenderProps): ReactNode {
   return createElement(
     'div',
-    { className, style: { maxWidth: asStr(props.width, '1200px'), marginLeft: 'auto', marginRight: 'auto', paddingLeft: asStr(props.gutter, '20px'), paddingRight: asStr(props.gutter, '20px'), ...style }, ...a11y, ...analytics },
+    { className, style: { maxWidth: safeDim(props.width, '1200px'), marginLeft: 'auto', marginRight: 'auto', paddingLeft: safeDim(props.gutter, '20px'), paddingRight: safeDim(props.gutter, '20px'), ...style }, ...a11y, ...analytics },
     children,
   );
 }
 
 // Grid — cols=N for equal columns, or min=240px for a responsive auto-fit grid.
 function Grid({ props, style, className, children, a11y, analytics }: AtomRenderProps): ReactNode {
-  const cols = Math.round(Number(props.cols)) || 0;
-  const min = props.min ? asStr(props.min) : '';
+  // Clamped to match the compiler: an unclamped cols=100000 emits a 100k-track
+  // grid template. Both sides must agree or compiled output diverges from SSR.
+  const cols = Math.min(24, Math.max(0, Math.round(Number(props.cols)) || 0));
+  // `min` is interpolated into a minmax() call — sanitise before it reaches CSS.
+  const min = props.min ? safeDim(props.min, '') : '';
   const template = min ? `repeat(auto-fit,minmax(${min},1fr))` : cols ? `repeat(${cols},minmax(0,1fr))` : undefined;
   const s: CSSProperties = { display: 'grid', gap: '16px', ...(template ? { gridTemplateColumns: template } : {}), ...style };
   return createElement('div', { className, style: s, ...a11y, ...analytics }, children);
@@ -145,7 +149,7 @@ function Divider({ style, className }: AtomRenderProps): ReactNode {
   return createElement('hr', { className, style });
 }
 function Spacer({ props, className }: AtomRenderProps): ReactNode {
-  return createElement('div', { className, style: { height: asStr(props.height, '24px') }, 'aria-hidden': true });
+  return createElement('div', { className, style: { height: safeDim(props.height, '24px') }, 'aria-hidden': true });
 }
 
 /** The built-in atom set. Extend via createBuilder({ atoms: { ...defaultAtoms, myAtom } }). */

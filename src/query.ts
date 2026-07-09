@@ -46,7 +46,12 @@ const A11Y_KEYS: Record<string, string> = {
 const BREAKPOINTS = new Set(['sm', 'md', 'lg']);
 const NODE_FLAGS = new Set(['protected', 'pii', 'external', 'hidden']);
 
-function coerce(v: string): string | number | boolean {
+// Bare values are coerced to number/boolean; a QUOTED value is always kept as a
+// string. Without that escape hatch `zip="02115"` became 2115 and `ver="1.10"`
+// became 1.1 — leading/trailing zeros destroyed with no way for an author to
+// opt out. Quoting is the escape hatch, and serialize() re-quotes accordingly.
+function coerce(v: string, quoted = false): string | number | boolean {
+  if (quoted) return v;
   if (v === 'true') return true;
   if (v === 'false') return false;
   if (/^-?\d+(\.\d+)?$/.test(v)) return Number(v);
@@ -188,6 +193,7 @@ function applyAttr(
     }
     return;
   }
+  const quoted = rawVal !== undefined && /^["']/.test(rawVal);
   const value = rawVal === undefined ? '' : unquote(rawVal);
 
   // Style (base or per-breakpoint)
@@ -200,14 +206,14 @@ function applyAttr(
       node.style.responsive[bp] ??= {};
       target = node.style.responsive[bp]!;
     }
-    (target as Record<string, unknown>)[styleKey] = coerce(value);
+    (target as Record<string, unknown>)[styleKey] = coerce(value, quoted);
     return;
   }
   // a11y
   const a11yKey = A11Y_KEYS[key];
   if (a11yKey) {
     node.a11y ??= {};
-    (node.a11y as Record<string, unknown>)[a11yKey] = coerce(value);
+    (node.a11y as Record<string, unknown>)[a11yKey] = coerce(value, quoted);
     return;
   }
   // meta / analytics / security / tags
@@ -236,7 +242,7 @@ function applyAttr(
   }
   if (key === 'bind') { node.data ??= { source: { kind: 'static' } }; node.data.bindTo = value; return; }
   // everything else → props
-  (node.props ??= {})[key] = coerce(value);
+  (node.props ??= {})[key] = coerce(value, quoted);
 }
 
 interface CompileCtx { count: number }
@@ -325,10 +331,29 @@ export function compilePage(src: string): BuilderDocument {
 const STYLE_TO_KEY: Record<string, string> = Object.fromEntries(
   Object.entries(STYLE_KEYS).map(([k, v]) => [v, k]),
 );
+// First spelling wins, so ariaLabel → "aria-label" (not the "a11y-label" alias).
+const A11Y_TO_KEY: Record<string, string> = (() => {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(A11Y_KEYS)) if (!(v in out)) out[v] = k;
+  return out;
+})();
+
+// A bare value is re-coerced on parse, so a STRING that looks like a number or a
+// boolean must be re-quoted or the round trip changes its type ("02115" → 2115).
 function fmtVal(v: unknown): string {
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
   const s = String(v);
-  return /\s|=|{|}/.test(s) ? JSON.stringify(s) : s;
+  if (s === '' || /\s|=|{|}|"|'|\/\//.test(s)) return JSON.stringify(s);
+  if (s === 'true' || s === 'false' || /^-?\d+(\.\d+)?$/.test(s)) return JSON.stringify(s);
+  return s;
 }
+
+/**
+ * Emit every field `applyAttr` can parse. serialize() is the inverse of parse():
+ * anything dropped here silently downgrades governance on a doc→AQL→doc round
+ * trip (a roles/consent/hidden node would come back public), and the visual
+ * editor sits on exactly this path.
+ */
 function serializeNode(node: BuilderNode, indent: string): string {
   const parts: string[] = [node.type];
   if (node.props?.text != null) parts.push(JSON.stringify(String(node.props.text)));
@@ -346,11 +371,32 @@ function serializeNode(node: BuilderNode, indent: string): string {
   if (r) for (const bp of ['sm', 'md', 'lg'] as const) {
     for (const [k, v] of Object.entries(r[bp] ?? {})) parts.push(`${bp}:${STYLE_TO_KEY[k] ?? k}=${fmtVal(v)}`);
   }
-  if (node.a11y?.ariaLabel) parts.push(`aria-label=${fmtVal(node.a11y.ariaLabel)}`);
-  if (node.a11y?.role) parts.push(`role=${fmtVal(node.a11y.role)}`);
-  if (node.meta?.analytics?.id) parts.push(`track=${fmtVal(node.meta.analytics.id)}`);
-  if (node.meta?.security?.protected) parts.push('protected');
-  if (node.meta?.security?.pii) parts.push('pii');
+  // a11y — every A11yProps field, not just aria-label/role.
+  for (const [field, v] of Object.entries(node.a11y ?? {})) {
+    if (v === undefined || v === null || v === '') continue;
+    const key = A11Y_TO_KEY[field];
+    if (key) parts.push(`${key}=${fmtVal(v)}`);
+  }
+  // data binding — api/path/method/bind.
+  const src = node.data?.source;
+  if (src?.kind === 'api') {
+    if (src.url) parts.push(`api=${fmtVal(src.url)}`);
+    if (src.path) parts.push(`path=${fmtVal(src.path)}`);
+    if (src.method && src.method !== 'GET') parts.push(`method=${src.method}`);
+  }
+  if (node.data?.bindTo) parts.push(`bind=${fmtVal(node.data.bindTo)}`);
+  // meta — analytics, tags, security.
+  const an = node.meta?.analytics;
+  if (an?.id) parts.push(`track=${fmtVal(an.id)}`);
+  if (an?.event) parts.push(`event=${fmtVal(an.event)}`);
+  if (an?.category) parts.push(`category=${fmtVal(an.category)}`);
+  if (node.meta?.tags?.length) parts.push(`tags=${fmtVal(node.meta.tags.join(','))}`);
+  const sec = node.meta?.security;
+  if (sec?.roles?.length) parts.push(`roles=${fmtVal(sec.roles.join(','))}`);
+  if (sec?.consentCategory) parts.push(`consent=${fmtVal(sec.consentCategory)}`);
+  if (sec?.protected) parts.push('protected');
+  if (sec?.pii) parts.push('pii');
+  if (node.hidden) parts.push('hidden');
   const head = parts.join(' ');
   if (node.children?.length) {
     const inner = node.children.map((c) => serializeNode(c, indent + '  ')).join('\n');
@@ -358,8 +404,26 @@ function serializeNode(node: BuilderNode, indent: string): string {
   }
   return `${indent}${head}`;
 }
+// Document fields AQL has no syntax for. Silently dropping them is how a
+// round trip used to lose data; refuse instead, so a caller (e.g. the editor's
+// save path) finds out at write time rather than shipping a degraded document.
+function assertRepresentable(node: BuilderNode): void {
+  const at = `node "${node.id}" (${node.type})`;
+  const src = node.data?.source;
+  if (src?.kind === 'static' && src.value !== undefined) throw new Error(`serialize: ${at} has a static data value, which AQL cannot express`);
+  if (src?.kind === 'api' && (src.headers || src.body || src.ttl !== undefined)) throw new Error(`serialize: ${at} has api headers/body/ttl, which AQL cannot express`);
+  if (node.meta?.analytics?.props) throw new Error(`serialize: ${at} has analytics props, which AQL cannot express`);
+  if (node.meta?.note !== undefined) throw new Error(`serialize: ${at} has meta.note, which AQL cannot express`);
+  node.children?.forEach(assertRepresentable);
+}
+
+/** Document → AQL. The exact inverse of `parse()`: `parse(serialize(doc))` deep-
+ *  equals `doc`. Throws on any field AQL cannot express rather than dropping it. */
 export function serialize(doc: BuilderDocument): string {
+  doc.root.forEach(assertRepresentable);
   const title = doc.meta?.title ?? 'Untitled';
+  const desc = doc.meta?.description;
+  const header = `page ${JSON.stringify(title)}${desc ? ` desc=${JSON.stringify(desc)}` : ''}`;
   const inner = doc.root.map((n) => serializeNode(n, '  ')).join('\n');
-  return `page ${JSON.stringify(title)} {\n${inner}\n}`;
+  return `${header} {\n${inner}\n}`;
 }

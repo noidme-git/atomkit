@@ -64,14 +64,18 @@ export function renderNode(
     ? node.children.map((c) => renderNode(c, registry, ctx, collect, masked))
     : undefined;
   const a11y = a11yAttrs(eff);
-  // Analytics attributes are consent-gated — suppressed when analytics consent is denied.
-  const analytics = ctx.consent?.analytics === false ? {} : analyticsAttrs(eff);
+  // Analytics attributes are consent-gated and fail CLOSED: emitted only on an
+  // explicit grant, matching consentCategory gating and data-protection-by-
+  // default (GDPR Art. 25). A caller that passes no consent object tracks nothing.
+  const analytics = ctx.consent?.analytics === true ? analyticsAttrs(eff) : {};
 
   const renderWith = (data: unknown): ReactNode => {
     const bindTo = eff.data?.bindTo ?? 'text';
     const props: Record<string, unknown> = { ...eff.props };
     if (data !== undefined) props[bindTo] = masked ? PII_MASK : data;
-    const atomProps: AtomRenderProps = { node, props, style, className, children, ctx, a11y, analytics };
+    // Hand atoms the MASKED node. Passing the original let any atom read around
+    // the mask via node.props.* / node.a11y.* (the built-in Image did exactly that).
+    const atomProps: AtomRenderProps = { node: eff, props, style, className, children, ctx, a11y, analytics };
     return def.render(atomProps);
   };
 
