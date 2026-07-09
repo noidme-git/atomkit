@@ -10,7 +10,7 @@
 // attack we never fire is a guard we have never tested.
 
 import assert from 'node:assert/strict';
-import { parseExpr, evaluate, evalExpr, interpolate, FUNCTIONS, MAX_NODES, MAX_DEPTH, MAX_SOURCE } from '../dist/index.js';
+import { parseExpr, evaluate, evalExpr, interpolate, FUNCTIONS, MAX_NODES, MAX_DEPTH, MAX_SOURCE } from '../dist/expr.js';   // not exported from index — see src/index.ts
 
 const ev = (src, scope = {}) => evalExpr(src, scope);
 const rejects = (src) => assert.throws(() => parseExpr(src), undefined, `expected parse to reject: ${src}`);
@@ -72,6 +72,28 @@ const rejects = (src) => assert.throws(() => parseExpr(src), undefined, `expecte
   rejects('state.fn()');
   rejects('(1)(2)');
   assert.ok(!Object.hasOwn(FUNCTIONS, 'eval') && !Object.hasOwn(FUNCTIONS, 'Function'));
+}
+
+// ── The whitelist itself must not be widenable at runtime ───────────────────
+// An exported mutable object IS the whitelist. Anything in the process could have
+// done `ak.FUNCTIONS.pwned = () => …` and a document could then call it — verified
+// before the fix: evalExpr("pwned()") returned the injected value. Found by the CTO
+// review of the 0.8.0 release candidate.
+{
+  assert.ok(Object.isFrozen(FUNCTIONS), 'the function whitelist must be frozen');
+  assert.equal(Object.getPrototypeOf(FUNCTIONS), null, 'the whitelist must have a null prototype');
+
+  // The attack, fired: assignment throws under ESM strict mode; either way it must not land.
+  assert.throws(() => { FUNCTIONS.pwned = () => 'INJECTED'; }, TypeError);
+  assert.ok(!Object.hasOwn(FUNCTIONS, 'pwned'), 'injection landed in the whitelist');
+  assert.equal(evalExpr('pwned()', {}), undefined, 'an injected function became callable from a document');
+
+  // Deleting a real one must not work either.
+  assert.throws(() => { delete FUNCTIONS.upper; }, TypeError);
+  assert.equal(ev('upper("ab")'), 'AB', 'legitimate calls still work');
+
+  // A null prototype means there is no `constructor` to find on it at all.
+  assert.equal(FUNCTIONS.constructor, undefined);
 }
 
 // ── Prototype access: rejected statically AND dynamically ────────────────────

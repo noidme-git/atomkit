@@ -2,6 +2,57 @@
 
 All notable changes to `@noidmejs/atomkit`. Pre-1.0: minor versions may break.
 
+## 0.8.0
+
+A security fix, and the first primitive the visual composer needs.
+
+### Security — BREAKING for anyone relying on the old (leaky) behaviour
+- **`maskNode` spread unknown node-level fields straight through.** It was
+  deny-by-default over `props` and allow-by-default over everything else, because it
+  built its result with `{ ...node, props }`. `parseDocument`'s strict schema does not
+  guard this path — neither `Render()` nor `stripDocument()` validates — so a
+  hand-authored, editor-built or LLM-generated node carried the field to the client:
+
+  ```
+  { props:{text:"ada@corp.com"}, secret:"SSN-123-45-6789", meta:{security:{pii:true}} }
+  → stripDocument(doc, {canViewPii:false})
+  → {"props":{"text":"•••••"},"secret":"SSN-123-45-6789"}     ← leaked
+  ```
+
+  The masked node is now **rebuilt from an explicit field list**. A field this function
+  has not been taught about fails CLOSED. Found by an adversarial review, in code
+  shipped as 0.7.0.
+
+### Fixed — BREAKING
+- **An unquoted `{` in an attribute value silently corrupted the document.** `{` opens a
+  block, so `box document={{x}}` parsed to `props.document = ""`, and
+  `box a=1 document={{x}} b=2` **split into two nodes**, inventing an atom named `b=2`
+  that then failed closed and rendered nothing. Neither form raised an error. A `{`
+  directly after `=` is now a parse error naming the attribute. Blocks are untouched;
+  a quoted `"{{ … }}"` still passes through intact.
+
+### Added
+- **`instrumentRegistry(registry)`** and **`NODE_ID_ATTR`** — returns a registry whose
+  atoms tag their root element with `data-ak-id`, so an editor can hit-test, select and
+  measure a rendered document. `Render` emits no per-node handle of its own (it sets
+  `class="ak-<id>"` only for nodes declaring responsive overrides), and the obvious
+  alternative — a wrapper `<div>` per atom — destroys every flex and grid layout,
+  because the wrapper becomes the flex item instead of the atom. This injects the
+  attribute onto the element the atom already returns, via `cloneElement`: markup is
+  byte-identical apart from the attribute, and atoms that render nothing still render
+  nothing. The suite carries a negative control that re-implements it the wrong way and
+  proves the checks catch it.
+
+### Not shipped, deliberately
+- A safe expression evaluator (no `eval`, eight mutation-tested guards, 4000-case fuzz)
+  exists in `src/expr.ts` but is **not exported**. It has zero call sites, and its
+  contract is unsettled: the AQL 1.0 spec wants a root allowlist inside `parseExpr`,
+  while the governance gate records that there deliberately is none. Publishing would
+  freeze both as a semver commitment before either question is answered. Its exported
+  `FUNCTIONS` whitelist was also mutable — anything in the process could widen it and a
+  document could then call the injected function. It is now frozen and null-prototyped.
+  It ships when it has a consumer and a settled surface.
+
 ## 0.7.0
 
 Toolchain and validation hardening. Every change below was verified by executing

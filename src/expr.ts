@@ -49,7 +49,12 @@ const asStr = (v: unknown): string => (v == null ? '' : String(v));
 const asNum = (v: unknown): number => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const asArr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 
-export const FUNCTIONS: Record<string, (...a: unknown[]) => unknown> = {
+// FROZEN, and null-prototyped. An exported mutable object IS the whitelist: anything
+// running in the process could widen it (`ak.FUNCTIONS.pwned = …`) and a document
+// would then be able to call it. A null prototype also means `FUNCTIONS.constructor`
+// is not a function to be found in the first place.
+type Fn = (...a: unknown[]) => unknown;
+const FNS: Record<string, Fn> = {
   len: (v) => (Array.isArray(v) ? v.length : asStr(v).length),
   upper: (v) => asStr(v).toUpperCase(),
   lower: (v) => asStr(v).toLowerCase(),
@@ -69,6 +74,16 @@ export const FUNCTIONS: Record<string, (...a: unknown[]) => unknown> = {
   last: (a) => asArr(a)[asArr(a).length - 1],
   fallback: (v, d) => (v == null || v === '' ? d : v),
 };
+
+/** The call whitelist: FROZEN, and null-prototyped.
+ *
+ *  An exported mutable object IS the whitelist. Anything running in the process
+ *  could widen it — `ak.FUNCTIONS.pwned = () => …` — and a document would then be
+ *  able to call it. Verified: before freezing, `evalExpr("pwned()")` returned the
+ *  injected value. The null prototype additionally means `FUNCTIONS.constructor`
+ *  is not a function to be found in the first place. */
+export const FUNCTIONS: Readonly<Record<string, Fn>> =
+  Object.freeze(Object.assign(Object.create(null) as Record<string, Fn>, FNS));
 
 /** JS truthiness, minus the surprises we do not want in a template language. */
 function truthy(v: unknown): boolean {

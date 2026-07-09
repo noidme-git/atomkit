@@ -9,7 +9,13 @@ export * from './render.js';
 export * from './url.js';
 export * from './lint.js';
 export * from './instrument.js';
-export * from './expr.js';
+// NOT exported: './expr.js'.
+//
+// The expression evaluator has zero call sites — nothing evaluates `{{ }}` yet — and
+// its contract is unsettled: the AQL 1.0 spec wants a root allowlist inside
+// `parseExpr`, while the governance gate's G7 records that there deliberately is
+// none. Publishing would freeze both as a semver commitment before either question
+// is answered. It ships when it has a consumer and a settled surface.
 export * from './query.js';
 export * from './ai.js';
 export { DataBound, getPath } from './data.js';
