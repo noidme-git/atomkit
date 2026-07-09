@@ -62,10 +62,22 @@ const LOCATOR_PROPS = new Set([
   'src', 'srcset', 'href', 'url', 'poster', 'action', 'formaction', 'background', 'data', 'ping', 'cite',
 ]);
 
-/** Return a masked copy of a node — every non-structural value blanked, every
- *  locator dropped, and any data binding removed so no PII value survives (or is
- *  re-fetched). Masking is by VALUE: numbers, booleans and props of unknown
- *  atoms are masked exactly like strings. */
+/**
+ * Return a masked copy of a node — every non-structural value blanked, every
+ * locator dropped, and any data binding removed so no PII value survives (or is
+ * re-fetched). Masking is by VALUE: numbers, booleans and props of unknown atoms
+ * are masked exactly like strings.
+ *
+ * The masked node is REBUILT from an explicit list of known fields, never spread
+ * from the original. `{ ...node }` was deny-by-default over `props` and
+ * allow-by-default over everything else, so any node-level field the schema did
+ * not know about — a hand-authored key, or a future `state` / `on` / `each` —
+ * survived masking untouched. `Render` and `stripDocument` do not validate, so
+ * `parseDocument`'s strictness never guarded this path.
+ *
+ * Rebuilding means a new node-level field fails CLOSED: it is dropped from a
+ * masked node until someone deliberately teaches this function what it is.
+ */
 export function maskNode(node: BuilderNode): BuilderNode {
   const props: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(node.props ?? {})) {
@@ -75,16 +87,24 @@ export function maskNode(node: BuilderNode): BuilderNode {
     if (typeof v === 'object') continue;     // drop structured values wholesale
     props[k] = PII_MASK;                     // scalar of ANY type → masked
   }
-  const out: BuilderNode = { ...node, props };
-  delete out.data; // a masked node must not carry a static PII value nor fetch one
+
+  // Explicit reconstruction. `data` is deliberately absent: a masked node must
+  // neither carry a static PII value nor fetch one.
+  const out: BuilderNode = { id: node.id, type: node.type, props };
+  if (node.style) out.style = node.style;
+  if (node.hidden !== undefined) out.hidden = node.hidden;
+  if (node.children) out.children = node.children;
+
   if (node.a11y) {
     out.a11y = { ...node.a11y };
     if (out.a11y.ariaLabel) out.a11y.ariaLabel = PII_MASK_LABEL;
     if (out.a11y.alt) out.a11y.alt = PII_MASK_LABEL;
     delete out.a11y.ariaDescribedby;
   }
-  if (node.meta?.analytics?.props) {
-    out.meta = { ...node.meta, analytics: { ...node.meta.analytics, props: undefined } };
+  if (node.meta) {
+    out.meta = node.meta.analytics?.props
+      ? { ...node.meta, analytics: { ...node.meta.analytics, props: undefined } }
+      : node.meta;
   }
   return out;
 }

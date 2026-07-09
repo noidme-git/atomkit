@@ -159,4 +159,49 @@ const styleOf = (h) => (h.match(/style="([^"]*)"/) ?? [, ''])[1];
   assert.equal(p.b, true, 'a bare boolean still coerces');
 }
 
+// ── 9. maskNode spread unknown node-level fields straight through ────────────
+// It was deny-by-default over `props` and allow-by-default over everything else:
+// `{ ...node, props }`. Any node-level field the schema did not know about — a
+// hand-authored key, or a future `state` / `on` / `each` — survived masking.
+// `Render` and `stripDocument` never validate, so parseDocument's strictness did
+// not guard this path. Found by the red-team review of the AQL 1.0 design.
+{
+  const hostile = {
+    id: 'a', type: 'text',
+    props: { text: 'ada@corp.com' },
+    secret: 'SSN-123-45-6789',            // unknown node-level field
+    state: { email: 'ada@corp.com' },     // the shape AQL 1.0 will introduce
+    on: { click: 'exfiltrate(props.text)' },
+    meta: { security: { pii: true } },
+  };
+
+  const masked = maskNode(hostile);
+  assert.equal(masked.props.text, PII_MASK, 'props still masked');
+  assert.equal(masked.secret, undefined, 'an unknown node-level field must not survive masking');
+  assert.equal(masked.state, undefined, 'a future `state` field must fail closed');
+  assert.equal(masked.on, undefined, 'a future `on` field must fail closed');
+
+  const out = stripDocument({ version: 1, root: [hostile] }, { canViewPii: false });
+  const json = JSON.stringify(out);
+  assert.ok(!json.includes('SSN-123-45-6789'), 'unknown node field leaked through stripDocument');
+  assert.ok(!json.includes('ada@corp.com'), 'PII leaked through a node-level field');
+  assert.ok(!json.includes('exfiltrate'), 'an action field leaked through stripDocument');
+
+  // Known fields still survive, or the mask would be useless.
+  const known = maskNode({
+    id: 'b', type: 'heading', props: { text: 'x', level: 2 },
+    style: { fontSize: '2rem' }, hidden: false,
+    children: [{ id: 'c', type: 'text', props: { text: 'kid' } }],
+    a11y: { role: 'note', ariaLabel: 'L' },
+    meta: { security: { pii: true }, tags: ['t'] },
+  });
+  assert.equal(known.props.level, 2, 'structural props survive');
+  assert.deepEqual(known.style, { fontSize: '2rem' }, 'style survives');
+  assert.equal(known.hidden, false, 'hidden survives');
+  assert.equal(known.children.length, 1, 'children survive (they are masked by the cascade)');
+  assert.equal(known.a11y.ariaLabel, PII_MASK_LABEL, 'a11y label masked');
+  assert.equal(known.a11y.role, 'note', 'a11y role survives');
+  assert.deepEqual(known.meta.tags, ['t'], 'meta survives');
+}
+
 console.log('✓ regression tests passed (dimension-prop sanitising, PII masking by value, mask read-around, egress-only fields, responsive cascade, analytics fail-closed, lossless serialize, coerce escape hatch)');
