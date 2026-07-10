@@ -30,6 +30,7 @@ import { stripDocument } from './security.js';
 import type { RenderContext } from './security.js';
 import type { BuilderDocument, BuilderNode } from './schema.js';
 import type { Scope } from './expr.js';
+import { evalExpr, interpolate, type Scope as ExprScope } from './expr.js';
 
 /** Keys that can reach the prototype chain. Never copied into a scope. Mirrors the
  *  evaluator's own FORBIDDEN_KEYS; JSON.parse can mint a genuine own `__proto__`. */
@@ -138,7 +139,45 @@ export function buildScope(raw: BuildScopeInput, ctx: RenderContext = {}): Scope
     if (FORBIDDEN_KEYS.has(k)) continue;
     out[k] = sanitize(v, ctx, 0);
   }
+  // Brand it. The rule "no call site may hand a raw object to the evaluator" was, until
+  // now, a sentence in a comment. A comment is not an enforcement: a renderer that
+  // forgets is prevented from nothing. The brand makes an unstripped scope structurally
+  // unusable at the one entry point that matters (`evalInScope`).
+  //
+  // Non-enumerable, so it never appears in JSON, in an expression, or in a diff.
+  Object.defineProperty(out, SCOPE_BRAND, { value: true, enumerable: false, writable: false, configurable: false });
   return deepFreeze(out) as Scope;
+}
+
+/** Marks a value as having passed through `buildScope`. A symbol, so a hostile
+ *  document cannot forge it: a JSON document has no way to name a symbol key. */
+const SCOPE_BRAND: unique symbol = Symbol.for('atomkit.scope');
+
+/** Did this scope come from `buildScope`? */
+export function isScope(v: unknown): v is Scope {
+  return !!v && typeof v === 'object' && (v as Record<symbol, unknown>)[SCOPE_BRAND] === true;
+}
+
+/**
+ * The ONE sanctioned way to evaluate an AQL expression.
+ *
+ * Refuses any scope that did not come from `buildScope`, and fails CLOSED — an
+ * unbranded scope yields `undefined`, which renders as nothing, exactly as an
+ * unresolvable reference does. It never throws into the renderer.
+ *
+ * `evalExpr` remains a pure evaluator over whatever it is handed; it is not exported
+ * from the package. Governance lives at the scope boundary, so no other code has to
+ * remember to.
+ */
+export function evalInScope(src: string, scope: unknown): unknown {
+  if (!isScope(scope)) return undefined;
+  return evalExpr(src, scope as Scope);
+}
+
+/** Interpolate `{{ … }}` in a template, through a branded scope only. */
+export function interpolateInScope(template: string, scope: unknown): unknown {
+  if (!isScope(scope)) return typeof template === 'string' ? template.replace(/\{\{[^}]*\}\}/g, '') : template;
+  return interpolate(template, scope as Scope);
 }
 
 function deepFreeze<T>(o: T): T {

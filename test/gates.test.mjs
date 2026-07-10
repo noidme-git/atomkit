@@ -18,7 +18,7 @@
 
 import assert from 'node:assert/strict';
 import { safeNavigate } from '../dist/navigate.js';
-import { buildScope } from '../dist/scope.js';
+import { buildScope, evalInScope, interpolateInScope, isScope } from '../dist/scope.js';
 import { evalExpr } from '../dist/expr.js';
 
 const PII = 'SSN 123-45-6789';
@@ -97,6 +97,40 @@ const policy = { allowHosts: ['app.example.com'] };
   // a governed node. Asserted so the limit is visible, not discovered.
   assert.ok(leaks(buildScope({ state: { email: PII } }, ctx)),
     'precondition: a raw scalar is undetectable — enforce literal-only state upstream');
+}
+
+// ── The scope brand: an unstripped scope is structurally unusable ───────────
+// "No call site may hand a raw object to the evaluator" was a sentence in a comment.
+// A comment is not an enforcement: a renderer that forgets is prevented from nothing.
+{
+  const piiNode = { id: 'a', type: 'text', props: { text: PII }, meta: { security: { pii: true } } };
+  const raw = { state: { doc: { version: 1, root: [piiNode] } } };
+  const safe = buildScope(raw, { canViewPii: false });
+  const EXPR = 'state.doc.root[0].props.text';
+
+  // Fails CLOSED — `undefined` renders as nothing, exactly like an unresolvable ref.
+  assert.equal(evalInScope(EXPR, raw), undefined, 'an unbranded scope must be refused');
+  assert.equal(evalInScope(EXPR, safe), '•••••', 'a branded scope yields the mask');
+  assert.equal(evalInScope(EXPR, buildScope(raw, { canViewPii: true })), PII, 'a permitted viewer still reads it');
+  assert.equal(evalInScope(EXPR, null), undefined);
+  assert.equal(evalInScope(EXPR, 'nope'), undefined);
+
+  // The brand is a SYMBOL, so a document — which is JSON — cannot name it.
+  const forged = JSON.parse('{"state":{},"Symbol(atomkit.scope)":true,"@@atomkit.scope":true,"__brand":true}');
+  assert.ok(!isScope(forged), 'a JSON object forged the brand');
+  assert.equal(evalInScope('state', forged), undefined);
+
+  // Non-enumerable, so a spread silently loses it. Losing it must fail closed.
+  assert.ok(!isScope({ ...safe }), 'a spread scope kept the brand');
+  assert.equal(evalInScope(EXPR, { ...safe }), undefined, 'a spread scope must be refused');
+  assert.ok(!JSON.stringify(safe).includes('atomkit.scope'), 'the brand must not appear in JSON');
+
+  // Interpolation fails closed the same way: braces removed, nothing substituted.
+  assert.equal(interpolateInScope(`x {{${EXPR}}} y`, raw), 'x  y');
+  assert.equal(interpolateInScope(`x {{${EXPR}}} y`, safe), 'x ••••• y');
+
+  // And the raw evaluator still leaks — which is precisely why it is not exported.
+  assert.equal(evalExpr(EXPR, raw), PII, 'evalExpr is a pure evaluator; governance lives at the scope boundary');
 }
 
 console.log('✓ gate tests passed (G5: control-char, protocol-relative, userinfo, suffix-spoof, scheme blocks + legitimate targets pass; G2: document/node/array/nested/loop-var all masked, protected absent, permitted viewer unaffected, raw-scalar limit asserted)');
