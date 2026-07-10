@@ -1,0 +1,56 @@
+// A governed careers page.
+//
+// The whole product in one file: every block declares who may see it, and
+// `stripDocument` enforces that at egress — the wrong viewer never receives the
+// bytes, rather than receiving them and being asked not to look.
+//
+// No competing visual builder can express this page.
+
+page "Careers" desc="Open roles at Northwind Health" {
+
+  section pad-y=72 {
+    heading "Join Northwind Health" level=1 size=clamp(2rem,5vw,3.2rem) color="#0b1220"
+    text "We build software for hospitals. Come help." color="#525c6b" max-w=52ch size=18px
+  }
+
+  section bg="#f7f8fa" {
+    heading "What we offer" level=2 size=1.6rem
+    list {
+      text "Remote-first, four-day weeks in August"
+      text "Equity from day one"
+      text "Health cover, obviously"
+    }
+  }
+
+  // Only a recruiter sees the band. Anyone else: the node is GONE, not hidden.
+  section roles=recruiter {
+    heading "Compensation band" level=2 size=1.6rem
+    text "£120,000 – £160,000 + equity" weight=700
+    text "Internal guidance — do not quote externally." color="#8a94a6" size=14px
+  }
+
+  // PII: masked for anyone without canViewPii. The value never leaves the server.
+  section {
+    heading "Talk to a human" level=2 size=1.6rem
+    text "Priya Raghunathan, Head of Talent"
+    text "priya.raghunathan@northwind.health" pii
+    text "+44 7700 900412" pii
+  }
+
+  // Board-only. Not masked — omitted.
+  section protected {
+    heading "Hiring plan Q3" level=2 size=1.6rem
+    text "12 engineers, 3 clinical leads. Budget approved 2026-06-30."
+  }
+
+  // Consent-gated: this block does not render unless the viewer consented to marketing.
+  section consent=marketing {
+    heading "Get role alerts" level=2 size=1.6rem
+    text "We'll email you when something opens."
+    button "Subscribe" href=#subscribe track=cta_subscribe event=click category=careers
+  }
+
+  section pad-y=48 {
+    text "© 2026 Northwind Health" color="#8a94a6" size=14px align=center
+  }
+}

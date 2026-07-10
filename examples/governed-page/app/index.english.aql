@@ -1,0 +1,57 @@
+// A governed careers page — written in ENGLISH AQL.
+//
+// Same page as index.aql, same governance, same bytes. Every block says who may
+// see it in words a compliance reviewer would use ("visible to recruiter",
+// "contains personal data", "is confidential", "needs marketing consent").
+//
+// This file DESUGARS to index.aql's canonical form: compilePage(desugar(this))
+// deep-equals compilePage(index.aql). Proven in preview-english.mjs.
+
+page "Careers" desc="Open roles at Northwind Health" {
+
+  section pad-y=72 {
+    heading "Join Northwind Health" level 1 size clamp(2rem,5vw,3.2rem) in colour "#0b1220"
+    text "We build software for hospitals. Come help." in colour "#525c6b" max width 52ch size 18px
+  }
+
+  section bg="#f7f8fa" {
+    heading "What we offer" level 2 size 1.6rem
+    list {
+      text "Remote-first, four-day weeks in August"
+      text "Equity from day one"
+      text "Health cover, obviously"
+    }
+  }
+
+  // Only a recruiter sees the band. Anyone else: the node is GONE, not hidden.
+  section visible to recruiter {
+    heading "Compensation band" level 2 size 1.6rem
+    text "£120,000 – £160,000 + equity" bold
+    text "Internal guidance — do not quote externally." in colour "#8a94a6" size 14px
+  }
+
+  // PII: masked for anyone without canViewPii. The value never leaves the server.
+  section {
+    heading "Talk to a human" level 2 size 1.6rem
+    text "Priya Raghunathan, Head of Talent"
+    text "priya.raghunathan@northwind.health" contains personal data
+    text "+44 7700 900412" contains personal data
+  }
+
+  // Board-only. Not masked — omitted.
+  section is confidential {
+    heading "Hiring plan Q3" level 2 size 1.6rem
+    text "12 engineers, 3 clinical leads. Budget approved 2026-06-30."
+  }
+
+  // Consent-gated: this block does not render unless the viewer consented to marketing.
+  section needs marketing consent {
+    heading "Get role alerts" level 2 size 1.6rem
+    text "We'll email you when something opens."
+    button "Subscribe" links to #subscribe tracked as cta_subscribe logs event click in category careers
+  }
+
+  section pad-y=48 {
+    text "© 2026 Northwind Health" in colour "#8a94a6" size 14px centered
+  }
+}

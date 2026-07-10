@@ -241,7 +241,12 @@ function applyAttr(
     else node.data.source = { kind: 'api', url: value };
     return;
   }
-  if (key === 'path' || key === 'data-path') {
+  // `path` is the data-binding JSON path ONLY when this node already has a binding.
+  // Otherwise it is an ordinary prop — because `icon path="M4 4h16…"` is the icon's
+  // SVG path, and treating it as a data key made the `icon` atom UNAUTHORABLE in AQL:
+  // it silently produced `data.source = { kind:'api', url:'', path:'M4 4h16…' }` and
+  // rendered nothing. `data-path=` is always unambiguous and is what serialize() emits.
+  if (key === 'data-path' || (key === 'path' && node.data)) {
     node.data ??= { source: { kind: 'api', url: '' } };
     if (node.data.source.kind === 'api') node.data.source.path = value;
     return;
@@ -278,6 +283,13 @@ function compileNode(raw: RawNode, path: number[], ctx: CompileCtx): BuilderNode
     const eq = tok.v.indexOf('=');
     if (eq > 0 && !tok.q) applyAttr(node, tok.v.slice(0, eq), tok.v.slice(eq + 1), false);
     else applyAttr(node, tok.v, undefined, true);
+  }
+  // `path=` before `api=` would silently land in props and the binding would have no
+  // path. Refuse, and say how to fix it. Silence is how the icon bug survived.
+  if (node.data?.source.kind === 'api' && node.props?.path !== undefined) {
+    throw new Error(
+      `AQL: "${type}" has both a data binding and a "path" prop. Put api= before path=, or write data-path=.`,
+    );
   }
   if (raw.children.length) node.children = raw.children.map((c, i) => compileNode(c, [...path, i], ctx));
   return node;
@@ -392,7 +404,7 @@ function serializeNode(node: BuilderNode, indent: string): string {
   const src = node.data?.source;
   if (src?.kind === 'api') {
     if (src.url) parts.push(`api=${fmtVal(src.url)}`);
-    if (src.path) parts.push(`path=${fmtVal(src.path)}`);
+    if (src.path) parts.push(`data-path=${fmtVal(src.path)}`); // unambiguous: `path` alone is an atom prop
     if (src.method && src.method !== 'GET') parts.push(`method=${src.method}`);
   }
   if (node.data?.bindTo) parts.push(`bind=${fmtVal(node.data.bindTo)}`);

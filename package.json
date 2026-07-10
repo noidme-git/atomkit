@@ -37,6 +37,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node test/query.test.mjs && node test/render.test.mjs && node test/security.test.mjs && node test/schema.test.mjs && node test/instrument.test.mjs && node test/expr.test.mjs && node test/gates.test.mjs && node test/regressions.test.mjs",
+    "gates": "node tools/gates/governance-gate.mjs; node tools/gates/gate-wiring.mjs; node tools/gates/gate-ratchet.mjs",
     "prepublishOnly": "npm run build && npm test"
   },
   "peerDependencies": {

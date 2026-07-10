@@ -1,0 +1,9 @@
+{
+  "title": "Northwind Careers",
+  "description": "Open roles at Northwind Health",
+  "lang": "en",
+  "port": 3300,
+  "tokens": { "brand": "#0b1220", "soft": "#f7f8fa" },
+  "context": { "canViewProtected": false, "canViewPii": false, "roles": [], "analytics": false },
+  "data": { "allowHosts": [] }
+}

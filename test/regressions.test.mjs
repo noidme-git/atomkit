@@ -222,4 +222,30 @@ const styleOf = (h) => (h.match(/style="([^"]*)"/) ?? [, ''])[1];
   assert.equal(compilePage('page "p" {\n  container width=720px { text "x" }\n}').root[0].props.width, '720px');
 }
 
+// ── 11. `icon` was unauthorable in AQL: `path=` was stolen by data binding ───
+// `icon path="M4 4h16…"` produced data.source = {kind:'api', url:'', path:'M4 4h16…'}
+// and rendered NOTHING, because the Icon atom reads props.path. Found by building the
+// composer app — the first time anyone authored an icon in AQL.
+{
+  const icon = compilePage('page "p" {\n  icon path="M4 4h16v16H4z" viewBox="0 0 24 24"\n}').root[0];
+  assert.equal(icon.props.path, 'M4 4h16v16H4z', 'icon path must be a prop');
+  assert.equal(icon.data, undefined, 'icon must not acquire a phantom data binding');
+
+  // A real binding still binds, and `path` after `api` is still the JSON path.
+  const bound = compilePage('page "p" {\n  text "x" api="https://a/b" path=data.price bind=text\n}').root[0];
+  assert.equal(bound.data.source.path, 'data.price');
+  assert.equal(bound.props.path, undefined);
+
+  // `data-path` is always unambiguous, and is what serialize() emits.
+  const explicit = compilePage('page "p" {\n  text "x" api="https://a/b" data-path=data.price\n}').root[0];
+  assert.equal(explicit.data.source.path, 'data.price');
+  assert.ok(serialize({ version: 1, root: [bound] }).includes('data-path=data.price'));
+  const doc = compilePage('page "P" {\n  text "x" api="https://a/b" path=data.price bind=text\n}');
+  assert.deepEqual(compilePage(serialize(doc)), doc, 'a bound node still round-trips through data-path=');
+
+  // `path=` BEFORE `api=` would silently land in props with no binding path. Refuse.
+  assert.throws(() => compilePage('page "p" {\n  text "x" path=data.price api="https://a/b"\n}'),
+    /both a data binding and a "path" prop/, 'ambiguous ordering must be a loud error');
+}
+
 console.log('✓ regression tests passed (dimension-prop sanitising, PII masking by value, mask read-around, egress-only fields, responsive cascade, analytics fail-closed, lossless serialize, coerce escape hatch)');

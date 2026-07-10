@@ -41,7 +41,7 @@ STYLE keys:
   opacity, display, dir (row|column), justify, items (align-items), wrap, z, pos, grid-cols, aspect, overflow
 RESPONSIVE: prefix any style key with sm:/md:/lg:, e.g.  md:dir=row  lg:size=3rem
 A11Y: aria-label, role, alt, tabindex, lang, aria-hidden
-DATA (dynamic content): api="https://…" path="a.b.0" bind=text   (binds the fetched value to a prop)
+DATA (dynamic content): api="https://…" data-path="a.b.0" bind=text   (binds the fetched value to a prop)
 ANALYTICS: track=click_id  event=name  category=cta
 SECURITY: protected | pii | roles=a,b | consent=analytics
 
